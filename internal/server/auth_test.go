@@ -173,3 +173,36 @@ func TestAuthFlow(t *testing.T) {
 		t.Errorf("after logout -> %d, want 401", resp.StatusCode)
 	}
 }
+
+func TestOIDCRoutesWhenDisabled(t *testing.T) {
+	ts := newAuthServer(t)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	resp, err := client.Get(ts.URL + "/auth/oidc/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("login without OIDC -> %d, want 404", resp.StatusCode)
+	}
+
+	resp, err = client.Get(ts.URL + "/auth/oidc/callback?code=x&state=y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("callback without OIDC -> %d, want 404", resp.StatusCode)
+	}
+
+	var me map[string]any
+	resp, _ = http.Get(ts.URL + "/auth/me")
+	json.NewDecoder(resp.Body).Decode(&me)
+	resp.Body.Close()
+	if _, ok := me["oidc"]; ok {
+		t.Errorf("me must omit oidc when disabled: %v", me)
+	}
+}

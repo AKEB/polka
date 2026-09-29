@@ -129,3 +129,56 @@ func TestDuplicateLogin(t *testing.T) {
 		t.Errorf("case-insensitive duplicate: %v", err)
 	}
 }
+
+func TestFindOrCreateOIDC(t *testing.T) {
+	s := newService(t)
+	ctx := context.Background()
+
+	u1, err := s.FindOrCreateOIDC(ctx, "https://idp.example", "sub-1", "alice@example.com", "Alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u1.Login != "alice@example.com" || u1.DisplayName != "Alice" || u1.Role != RoleUser {
+		t.Fatalf("created: %+v", u1)
+	}
+
+	// Same issuer+sub returns the same user (no second row).
+	u2, err := s.FindOrCreateOIDC(ctx, "https://idp.example", "sub-1", "other", "Other")
+	if err != nil || u2.ID != u1.ID {
+		t.Fatalf("reuse: %v %+v", err, u2)
+	}
+
+	// Password login is disabled for OIDC-only accounts.
+	if _, _, err := s.Login(ctx, u1.Login, "anything"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Errorf("empty password must reject login: %v", err)
+	}
+
+	// Session can still be opened explicitly.
+	tok, err := s.CreateSession(ctx, u1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetByToken(ctx, tok)
+	if err != nil || got.ID != u1.ID {
+		t.Fatalf("session: %v %+v", err, got)
+	}
+
+	// Login collision appends a suffix.
+	_, _ = s.CreateUser(ctx, "bob", "pass1234", "", RoleUser)
+	u3, err := s.FindOrCreateOIDC(ctx, "https://idp.example", "sub-bob", "bob", "Bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u3.Login != "bob_1" {
+		t.Fatalf("collision login: %q", u3.Login)
+	}
+
+	// Disabled OIDC user cannot sign in again.
+	off := true
+	if err := s.UpdateUser(ctx, u1.ID, nil, nil, nil, &off); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FindOrCreateOIDC(ctx, "https://idp.example", "sub-1", "alice@example.com", "Alice"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Errorf("disabled: %v", err)
+	}
+}

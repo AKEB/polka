@@ -41,6 +41,7 @@ type Server struct {
 	loginLimiter *rateLimiter // throttle password guessing
 	guestLimiter *rateLimiter // throttle demo guest creation
 	secret       []byte       // key for secrets at rest (SMTP password)
+	oidc         *oidcAuth    // nil when OIDC is not configured / discovery failed
 }
 
 func New(cfg *config.Config, log *slog.Logger, st *store.Store, lib *library.Library, users *auth.Service, sync *syncer.Syncer, webFS fs.FS) *http.Server {
@@ -77,6 +78,7 @@ func New(cfg *config.Config, log *slog.Logger, st *store.Store, lib *library.Lib
 			s.desktop = owner
 		}
 	}
+	s.initOIDC(context.Background())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
@@ -85,6 +87,8 @@ func New(cfg *config.Config, log *slog.Logger, st *store.Store, lib *library.Lib
 	mux.HandleFunc("POST /auth/login", s.handleLogin)
 	mux.HandleFunc("POST /auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /auth/me", s.handleMe)
+	mux.HandleFunc("GET /auth/oidc/login", s.handleOIDCLogin)
+	mux.HandleFunc("GET /auth/oidc/callback", s.handleOIDCCallback)
 
 	// User management (administrator only).
 	// Absent in desktop mode (single user) and in demo mode.

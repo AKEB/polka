@@ -188,7 +188,40 @@ Everything has a sensible default. The most useful flags of `polka serve`:
 | `--addr` | `:12791` | listen address |
 | `--data-dir` | `~/.polka` | database, settings, covers cache |
 | `--library-dir` | — | folder with books (or inpx archives) |
-| `--auth` | `users` | `users` (accounts) or `none` (open access) |
+| `--auth` | `required` | `required` (accounts), `public` (open), or `demo` |
+| `--public-url` | — | public base URL (`https://…`), used to build the OIDC callback |
+
+### OpenID Connect (optional)
+
+Besides login/password, Polka can authenticate users via any OpenID Connect
+provider (Keycloak, Authentik, Google, Authelia, …). On first successful
+OIDC login a regular user account is created automatically (auto-registration);
+later visits reuse the same account keyed by issuer + `sub`.
+
+Set all of:
+
+| Flag / env | Meaning |
+|------------|---------|
+| `--oidc-issuer` / `POLKA_OIDC_ISSUER` | issuer URL (discovery) |
+| `--oidc-client-id` / `POLKA_OIDC_CLIENT_ID` | OAuth client id |
+| `--oidc-client-secret` / `POLKA_OIDC_CLIENT_SECRET` | client secret (if the provider requires one) |
+| `--oidc-redirect-url` / `POLKA_OIDC_REDIRECT_URL` | callback URL (default: `<public-url>/auth/oidc/callback`) |
+| `--oidc-name` / `POLKA_OIDC_NAME` | button label on the login page (e.g. `Keycloak`) |
+
+Register the redirect URI in the IdP. Example:
+
+```sh
+polka serve \
+  --library-dir /books \
+  --public-url https://polka.example.com \
+  --oidc-issuer https://idp.example.com/realms/library \
+  --oidc-client-id polka \
+  --oidc-client-secret '…' \
+  --oidc-name Keycloak
+```
+
+OIDC-only accounts have no password (password login stays available for
+accounts created by an admin). Promote users to admin in *Manage → Users*.
 
 External rating/recommendation sources are configured in the web UI
 (*Manage → External ratings / Similar books*) and are **off by default**

@@ -76,3 +76,58 @@ func TestLoadExtraFlagsAndErrors(t *testing.T) {
 		t.Errorf("unwritable data dir: %v", err)
 	}
 }
+
+func TestOIDCConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("POLKA_DATA_DIR", dir)
+	t.Setenv("POLKA_OIDC_ISSUER", "")
+	t.Setenv("POLKA_OIDC_CLIENT_ID", "")
+	t.Setenv("POLKA_OIDC_REDIRECT_URL", "")
+	t.Setenv("POLKA_PUBLIC_URL", "")
+
+	cfg, _, err := Load(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OIDCEnabled() {
+		t.Fatal("OIDC must be off by default")
+	}
+
+	// Issuer+client without redirect/public URL is rejected.
+	_, _, err = Load([]string{
+		"--oidc-issuer", "https://idp.example",
+		"--oidc-client-id", "polka",
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "redirect") {
+		t.Errorf("want redirect error, got %v", err)
+	}
+
+	cfg, _, err = Load([]string{
+		"--oidc-issuer", "https://idp.example",
+		"--oidc-client-id", "polka",
+		"--public-url", "https://polka.example.com/",
+		"--oidc-name", "Keycloak",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.OIDCEnabled() || cfg.OIDCName != "Keycloak" {
+		t.Fatalf("%+v", cfg)
+	}
+	if got := cfg.OIDCRedirect(); got != "https://polka.example.com/auth/oidc/callback" {
+		t.Errorf("redirect from public-url: %q", got)
+	}
+
+	cfg, _, err = Load([]string{
+		"--oidc-issuer", "https://idp.example",
+		"--oidc-client-id", "polka",
+		"--oidc-redirect-url", "https://other.example/cb",
+		"--public-url", "https://polka.example.com",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.OIDCRedirect(); got != "https://other.example/cb" {
+		t.Errorf("explicit redirect wins: %q", got)
+	}
+}

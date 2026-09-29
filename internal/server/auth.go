@@ -191,6 +191,12 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	if u := s.currentUser(r); u != nil {
 		resp["user"] = userJSON(u)
 	}
+	if s.oidc != nil {
+		resp["oidc"] = map[string]any{
+			"enabled": true,
+			"name":    s.oidc.name,
+		}
+	}
 	if s.sync != nil {
 		resp["sync"] = map[string]any{
 			"enabled": true,

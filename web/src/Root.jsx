@@ -26,6 +26,7 @@ const Root = () => {
   const [sync, setSync] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [version, setVersion] = useState("");
+  const [oidc, setOidc] = useState(null);
   const [filterLang, setFilterLangState] = useState(getFilterLang);
 
   const changeFilterLang = (code) => {
@@ -47,10 +48,12 @@ const Root = () => {
         setIsDesktop(Boolean(res.desktop));
         setSync(res.sync ?? null);
         setVersion(res.version ?? "");
+        setOidc(res.oidc ?? null);
       })
       .catch(() => {
         setUser(null);
         setAuthRequired(false);
+        setOidc(null);
       })
       .finally(() => setAuthChecked(true));
   }, []);
@@ -72,7 +75,7 @@ const Root = () => {
   }
 
   if (authRequired && !user) {
-    return <LoginPage onLogin={setUser} />;
+    return <LoginPage onLogin={setUser} oidc={oidc} />;
   }
 
   const layout = (children) => (

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { login } from "../api/auth";
 import "./LoginPage.css";
 
-const LoginPage = ({ onLogin }) => {
+const LoginPage = ({ onLogin, oidc }) => {
   const [user, setUser] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
@@ -22,6 +22,11 @@ const LoginPage = ({ onLogin }) => {
       .finally(() => setBusy(false));
   };
 
+  const oidcEnabled = Boolean(oidc?.enabled);
+  const oidcLabel = oidc?.name
+    ? t("login.oidcNamed", { name: oidc.name })
+    : t("login.oidc");
+
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={submit}>
@@ -29,12 +34,23 @@ const LoginPage = ({ onLogin }) => {
         <h1 className="login-card__title">{t("brand")}</h1>
         <p className="login-card__subtitle">{t("login.subtitle")}</p>
 
+        {oidcEnabled && (
+          <>
+            <a className="btn btn-primary login-card__oidc" href="/auth/oidc/login">
+              {oidcLabel}
+            </a>
+            <div className="login-card__divider" role="separator">
+              <span>{t("login.or")}</span>
+            </div>
+          </>
+        )}
+
         <label className="login-card__field">
           <span>{t("login.login")}</span>
           <input
             type="text"
             autoComplete="username"
-            autoFocus
+            autoFocus={!oidcEnabled}
             value={user}
             onChange={(e) => setUser(e.target.value)}
           />

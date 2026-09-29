@@ -9,3 +9,4 @@ android/app/build/
 android/.gradle/
 android/app/libs/*.aar
 android/app/libs/*.jar
+books/

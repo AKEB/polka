@@ -79,7 +79,14 @@ func Open(path string) (*Service, error) {
 		return nil, fmt.Errorf("auth schema: %w", err)
 	}
 	migrateProgress(db)
+	migrateOIDC(db)
 	return &Service{db: db}, nil
+}
+
+func migrateOIDC(db *sql.DB) {
+	db.Exec(`ALTER TABLE users ADD COLUMN oidc_issuer TEXT NOT NULL DEFAULT ''`)
+	db.Exec(`ALTER TABLE users ADD COLUMN oidc_sub TEXT NOT NULL DEFAULT ''`)
+	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc ON users (oidc_issuer, oidc_sub) WHERE oidc_sub != ''`)
 }
 
 func (s *Service) Close() error { return s.db.Close() }
@@ -156,7 +163,7 @@ func (s *Service) Verify(ctx context.Context, login, password string) (*User, er
 		SELECT id, login, password_hash, display_name, role, disabled, created_at
 		FROM users WHERE login = ?`, strings.TrimSpace(login)).
 		Scan(&u.ID, &u.Login, &hash, &u.DisplayName, &u.Role, &u.Disabled, &u.CreatedAt)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && (u.Disabled || !verifyPassword(password, hash))) {
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && (u.Disabled || hash == "" || !verifyPassword(password, hash))) {
 		return nil, ErrInvalidCredentials
 	}
 	if err != nil {
@@ -171,15 +178,23 @@ func (s *Service) Login(ctx context.Context, login, password string) (string, *U
 	if err != nil {
 		return "", nil, err
 	}
+	token, err := s.CreateSession(ctx, u.ID)
+	if err != nil {
+		return "", nil, err
+	}
+	return token, u, nil
+}
 
+// CreateSession opens a new browser session for an already authenticated user.
+func (s *Service) CreateSession(ctx context.Context, userID int64) (string, error) {
 	token := hex.EncodeToString(randomBytes(32))
 	expires := time.Now().UTC().Add(sessionTTL)
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)`,
-		tokenHash(token), u.ID, expires.Format(time.RFC3339)); err != nil {
-		return "", nil, err
+		tokenHash(token), userID, expires.Format(time.RFC3339)); err != nil {
+		return "", err
 	}
-	return token, u, nil
+	return token, nil
 }
 
 func (s *Service) Logout(ctx context.Context, token string) error {
@@ -275,6 +290,81 @@ func (s *Service) CreateUser(ctx context.Context, login, password, displayName, 
 	}
 	id, _ := res.LastInsertId()
 	return s.GetByID(ctx, id)
+}
+
+// FindOrCreateOIDC returns the user linked to issuer+sub, creating a
+// RoleUser account on first login (empty password — password login disabled).
+func (s *Service) FindOrCreateOIDC(ctx context.Context, issuer, sub, login, displayName string) (*User, error) {
+	issuer = strings.TrimSpace(issuer)
+	sub = strings.TrimSpace(sub)
+	if issuer == "" || sub == "" {
+		return nil, errors.New("oidc issuer and sub are required")
+	}
+
+	var u User
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, login, display_name, role, disabled, created_at
+		FROM users WHERE oidc_issuer = ? AND oidc_sub = ?`, issuer, sub).
+		Scan(&u.ID, &u.Login, &u.DisplayName, &u.Role, &u.Disabled, &u.CreatedAt)
+	if err == nil {
+		if u.Disabled {
+			return nil, ErrInvalidCredentials
+		}
+		if displayName = strings.TrimSpace(displayName); displayName != "" && u.DisplayName == "" {
+			_, _ = s.db.ExecContext(ctx, `UPDATE users SET display_name = ? WHERE id = ?`, displayName, u.ID)
+			u.DisplayName = displayName
+		}
+		return &u, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	base := sanitizeOIDCLogin(login)
+	if base == "" {
+		h := sha256.Sum256([]byte(issuer + "\x00" + sub))
+		base = "oidc_" + hex.EncodeToString(h[:6])
+	}
+	displayName = strings.TrimSpace(displayName)
+	if displayName == "" {
+		displayName = base
+	}
+
+	for i := 0; i < 32; i++ {
+		candidate := base
+		if i > 0 {
+			candidate = fmt.Sprintf("%s_%d", base, i)
+		}
+		res, err := s.db.ExecContext(ctx, `
+			INSERT INTO users (login, password_hash, display_name, role, oidc_issuer, oidc_sub)
+			VALUES (?, '', ?, ?, ?, ?)`,
+			candidate, displayName, RoleUser, issuer, sub)
+		if err == nil {
+			id, _ := res.LastInsertId()
+			return s.GetByID(ctx, id)
+		}
+		if strings.Contains(err.Error(), "UNIQUE") {
+			continue
+		}
+		return nil, err
+	}
+	return nil, ErrLoginTaken
+}
+
+func sanitizeOIDCLogin(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '_', r == '-', r == '@':
+			b.WriteRune(r)
+		}
+	}
+	out := b.String()
+	if len(out) > 64 {
+		out = out[:64]
+	}
+	return out
 }
 
 func (s *Service) GetByID(ctx context.Context, id int64) (*User, error) {

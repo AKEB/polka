@@ -8,6 +8,18 @@ services:
     volumes:
       - polka-data:/data        # database, settings, covers cache
       - ./books:/books          # your book collection (fb2/epub/pdf/... or an unpacked inpx library)
+    environment:
+      POLKA_ADDR: ":12791"
+      POLKA_DATA_DIR: /data
+      POLKA_LIBRARY_DIR: /books
+      # POLKA_AUTH: required     # required | public | demo
+      # OpenID Connect (optional) — first login auto-creates a user account
+      # POLKA_PUBLIC_URL: https://polka.example.com
+      # POLKA_OIDC_ISSUER: https://idp.example.com/realms/library
+      # POLKA_OIDC_CLIENT_ID: polka
+      # POLKA_OIDC_CLIENT_SECRET: change-me
+      # POLKA_OIDC_REDIRECT_URL: https://polka.example.com/auth/oidc/callback  # default: <PUBLIC_URL>/auth/oidc/callback
+      # POLKA_OIDC_NAME: Keycloak   # button label on the login page
     restart: unless-stopped
 
 volumes:

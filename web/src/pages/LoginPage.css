@@ -73,3 +73,25 @@
 .login-card__submit {
   margin-top: 4px;
 }
+
+.login-card__oidc {
+  text-align: center;
+  text-decoration: none;
+}
+
+.login-card__divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--fg-muted, #777);
+  font-size: 12px;
+  text-transform: lowercase;
+}
+
+.login-card__divider::before,
+.login-card__divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border, rgba(0, 0, 0, 0.12));
+}
