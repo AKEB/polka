@@ -600,26 +600,14 @@ func (b *Bot) sendDownload(ctx context.Context, chatID, fromID, bookID int64, fm
 
 	switch fmtName {
 	case "native":
-		rc, _, err := b.lib.Open(d.Folder, d.File, d.Ext)
-		if err != nil {
-			b.reply(chatID, b.tr(fromID, "download_fail"))
-			return
-		}
-		data, err = io.ReadAll(rc)
-		rc.Close()
+		data, err = b.lib.BookBytes(d.Folder, d.File, d.Ext)
 		if err != nil {
 			b.reply(chatID, b.tr(fromID, "download_fail"))
 			return
 		}
 		filename = sanitizeName(d.Title) + "." + d.Ext
 	case "zip":
-		rc, _, err := b.lib.Open(d.Folder, d.File, d.Ext)
-		if err != nil {
-			b.reply(chatID, b.tr(fromID, "download_fail"))
-			return
-		}
-		raw, err := io.ReadAll(rc)
-		rc.Close()
+		raw, err := b.lib.BookBytes(d.Folder, d.File, d.Ext)
 		if err != nil {
 			b.reply(chatID, b.tr(fromID, "download_fail"))
 			return

@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -101,19 +100,13 @@ func (s *Server) handleSendBook(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, err)
 		return
 	}
-	rc, size, err := s.lib.Open(f.Folder, f.File, f.Ext)
+	data, err := s.lib.BookBytes(f.Folder, f.File, f.Ext)
 	if err != nil {
 		s.apiError(w, err)
 		return
 	}
-	defer rc.Close()
-	if size > maxSendBytes {
+	if int64(len(data)) > maxSendBytes {
 		http.Error(w, "book is too large to e-mail", http.StatusRequestEntityTooLarge)
-		return
-	}
-	data, err := io.ReadAll(io.LimitReader(rc, maxSendBytes))
-	if err != nil {
-		s.apiError(w, err)
 		return
 	}
 

@@ -511,19 +511,32 @@ func (s *Server) handleBookDownload(w http.ResponseWriter, r *http.Request) {
 	if f == nil {
 		return
 	}
-	rc, size, err := s.lib.Open(f.Folder, f.File, f.Ext)
-	if err != nil {
-		s.apiError(w, err)
-		return
-	}
-	defer rc.Close()
-
 	disposition := "attachment"
 	if r.URL.Query().Get("inline") == "1" {
 		disposition = "inline" // view in browser (PDF etc.)
 	}
 	w.Header().Set("Content-Type", contentTypeFor(f.Ext))
 	w.Header().Set("Content-Disposition", disposition+`; filename="`+f.File+`.`+f.Ext+`"`)
+
+	if strings.EqualFold(f.Ext, "fb2") {
+		data, err := s.lib.AssembledFB2(f.Folder, f.File)
+		if err != nil {
+			s.apiError(w, err)
+			return
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		tee := &digestTee{}
+		n, _ := io.Copy(io.MultiWriter(w, tee), bytes.NewReader(data))
+		s.recordDigest(tee, f.ID, int64(len(data)), n)
+		return
+	}
+
+	rc, size, err := s.lib.Open(f.Folder, f.File, f.Ext)
+	if err != nil {
+		s.apiError(w, err)
+		return
+	}
+	defer rc.Close()
 	if size > 0 {
 		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	}
@@ -539,12 +552,11 @@ func (s *Server) handleBookZip(w http.ResponseWriter, r *http.Request) {
 	if f == nil {
 		return
 	}
-	rc, _, err := s.lib.Open(f.Folder, f.File, f.Ext)
+	data, err := s.lib.BookBytes(f.Folder, f.File, f.Ext)
 	if err != nil {
 		s.apiError(w, err)
 		return
 	}
-	defer rc.Close()
 
 	// Build the zip in memory so we can set Content-Length: without it OPDS
 	// clients (MoonReader) hang "at 100%" waiting for the size. An fb2.zip is
@@ -553,7 +565,7 @@ func (s *Server) handleBookZip(w http.ResponseWriter, r *http.Request) {
 	zw := zip.NewWriter(&buf)
 	entry, err := zw.Create(f.File + "." + f.Ext)
 	if err == nil {
-		_, err = io.Copy(entry, rc)
+		_, err = entry.Write(data)
 	}
 	if err == nil {
 		err = zw.Close()

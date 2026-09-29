@@ -366,7 +366,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	defer zw.Close()
 	used := map[string]int{}
 	for _, f := range files {
-		rc, _, err := s.lib.Open(f.Folder, f.File, f.Ext)
+		data, err := s.lib.BookBytes(f.Folder, f.File, f.Ext)
 		if err != nil {
 			s.log.Warn("export: skip missing", "book", f.ID, "error", err)
 			continue
@@ -380,9 +380,8 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		}
 		entry, err := zw.Create(name + "." + f.Ext)
 		if err == nil {
-			_, err = io.Copy(entry, rc)
+			_, err = entry.Write(data)
 		}
-		rc.Close()
 		if err != nil {
 			s.log.Warn("export stream", "book", f.ID, "error", err)
 			return

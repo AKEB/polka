@@ -3,7 +3,6 @@ package library
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"strings"
 )
 
@@ -32,19 +31,14 @@ func CanConvert(from, to string) bool {
 }
 
 // ConvertBook opens a library file and returns it in the requested
-// format ("fb2" or "epub"). If the file is already in that format, the
-// original bytes are returned unchanged.
+// format ("fb2" or "epub"). FB2 sources are assembled with Flibusta
+// sidecar covers/images before conversion or identity return.
 func (l *Library) ConvertBook(folder, file, ext, to string, info ConvertInfo) ([]byte, error) {
 	to, ext = normExt(to), normExt(ext)
 	if !CanConvert(ext, to) {
 		return nil, ErrUnsupportedConversion
 	}
-	rc, _, err := l.Open(folder, file, ext)
-	if err != nil {
-		return nil, err
-	}
-	defer rc.Close()
-	data, err := io.ReadAll(rc)
+	data, err := l.BookBytes(folder, file, ext)
 	if err != nil {
 		return nil, err
 	}

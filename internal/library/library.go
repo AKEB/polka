@@ -551,16 +551,33 @@ func (l *Library) Text(folder, file, ext string, imgURL func(string) string) (*F
 	return nil, ErrNoFile
 }
 
-// Binary pulls an embedded file (illustration) out of an FB2 by id.
+// Binary pulls an embedded file (illustration) out of an FB2 by id,
+// falling back to Flibusta images/ and covers/ sidecars when the FB2
+// has only href references and no <binary> data.
 func (l *Library) Binary(folder, file, ext, id string) ([]byte, string, error) {
+	id = strings.TrimPrefix(id, "#")
 	switch {
 	case strings.EqualFold(ext, "fb2"):
 		rc, _, err := l.Open(folder, file, ext)
 		if err != nil {
 			return nil, "", err
 		}
-		defer rc.Close()
-		return ExtractBinary(rc, id)
+		data, mime, err := ExtractBinary(rc, id)
+		rc.Close()
+		if err == nil && len(data) > 0 {
+			data, mime = normalizeCover(data, mime)
+			return data, mime, nil
+		}
+		if isCoverID(id) {
+			if d, m, ok := l.sidecarCover(folder, file); ok {
+				d, m = normalizeCover(d, m)
+				return d, m, nil
+			}
+		}
+		if d, m, ok := l.sidecarImage(folder, file, id); ok {
+			return d, m, nil
+		}
+		return nil, "", ErrNoFile
 	case strings.EqualFold(ext, "epub"):
 		rc, _, err := l.Open(folder, file, ext)
 		if err != nil {
