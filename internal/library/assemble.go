@@ -149,15 +149,17 @@ func InjectFB2Binaries(data []byte, binaries []FB2Binary, addCoverpage bool) []b
 	payload := buf.Bytes()
 
 	out := data
-	if addCoverpage && !bytes.Contains(bytes.ToLower(out), []byte("<coverpage")) {
+	if addCoverpage && !hasFB2Tag(out, "<coverpage") {
 		out = insertFB2Coverpage(out, "cover")
 	}
 	if len(payload) == 0 {
 		return out
 	}
 
-	lower := bytes.ToLower(out)
-	idx := bytes.LastIndex(lower, []byte("</fictionbook>"))
+	// Find </FictionBook> without bytes.ToLower on the whole document:
+	// Unicode case folding can change byte length, so an index into the
+	// lowercased copy is not valid for the original slice (panic).
+	idx := indexFB2Close(out)
 	if idx < 0 {
 		return append(out, payload...)
 	}
@@ -183,6 +185,28 @@ func insertFB2Coverpage(data []byte, coverID string) []byte {
 	out.Write(tag)
 	out.Write(data[loc[0]:])
 	return out.Bytes()
+}
+
+func indexFB2Close(data []byte) int {
+	const tag = "</fictionbook>"
+	n := len(tag)
+	for i := len(data) - n; i >= 0; i-- {
+		if bytes.EqualFold(data[i:i+n], []byte(tag)) {
+			return i
+		}
+	}
+	return -1
+}
+
+func hasFB2Tag(data []byte, tag string) bool {
+	n := len(tag)
+	needle := []byte(tag)
+	for i := 0; i+n <= len(data); i++ {
+		if bytes.EqualFold(data[i:i+n], needle) {
+			return true
+		}
+	}
+	return false
 }
 
 type sidecarImg struct {

@@ -147,3 +147,27 @@ func TestInjectFB2BinariesSkipsExisting(t *testing.T) {
 		t.Fatal("must add missing binary")
 	}
 }
+
+func TestInjectFB2BinariesUTF8CaseFoldSafe(t *testing.T) {
+	// Turkish İ (U+0130) lowercases to two runes; bytes.ToLower grows the
+	// buffer, so indexing the original with that offset used to panic.
+	body := strings.Repeat("İ", 50000)
+	fb2 := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+<description><title-info><book-title>T</book-title><lang>tr</lang></title-info></description>
+<body><section><p>` + body + `</p><image l:href="#1"/></section></body>
+</FictionBook>`)
+	out := InjectFB2Binaries(fb2, []FB2Binary{
+		{ID: "1", Mime: "image/jpeg", Data: []byte("\xFF\xD8\xFFx")},
+	}, true)
+	if !bytes.Contains(out, []byte(`<binary id="1"`)) {
+		t.Fatal("missing injected binary")
+	}
+	if !bytes.Contains(out, []byte("</FictionBook>")) && !bytes.Contains(bytes.ToLower(out[len(out)-40:]), []byte("</fictionbook>")) {
+		t.Fatal("missing closing tag")
+	}
+	bins, err := ExtractAllBinaries(bytes.NewReader(out))
+	if err != nil || len(bins) == 0 {
+		t.Fatalf("binaries: %v %d", err, len(bins))
+	}
+}
