@@ -20,6 +20,8 @@ services:
       # POLKA_OIDC_CLIENT_SECRET: change-me
       # POLKA_OIDC_REDIRECT_URL: https://polka.example.com/auth/oidc/callback  # default: <PUBLIC_URL>/auth/oidc/callback
       # POLKA_OIDC_NAME: Keycloak   # button label on the login page
+      # Telegram bot (optional) — BotFather token; link user IDs in Manage → Users
+      # POLKA_TELEGRAM_TOKEN: 123456:ABC-DEF...
     restart: unless-stopped
 
 volumes:

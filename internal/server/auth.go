@@ -121,7 +121,7 @@ func (s *Server) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func userJSON(u *auth.User) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"id":          u.ID,
 		"login":       u.Login,
 		"displayName": u.DisplayName,
@@ -129,6 +129,10 @@ func userJSON(u *auth.User) map[string]any {
 		"disabled":    u.Disabled,
 		"createdAt":   u.CreatedAt,
 	}
+	if u.TelegramID != 0 {
+		m["telegramId"] = u.TelegramID
+	}
+	return m
 }
 
 func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, token string, maxAge int) {
@@ -228,6 +232,7 @@ type userPayload struct {
 	DisplayName *string `json:"displayName"`
 	Role        *string `json:"role"`
 	Disabled    *bool   `json:"disabled"`
+	TelegramID  *int64  `json:"telegramId"`
 }
 
 func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
@@ -269,6 +274,12 @@ func (s *Server) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 		s.authAdminError(w, err)
 		return
 	}
+	if req.TelegramID != nil {
+		if err := s.users.SetTelegramID(r.Context(), id, *req.TelegramID); err != nil {
+			s.authAdminError(w, err)
+			return
+		}
+	}
 	u, err := s.users.GetByID(r.Context(), id)
 	if err != nil {
 		s.apiError(w, err)
@@ -297,6 +308,8 @@ func (s *Server) authAdminError(w http.ResponseWriter, err error) {
 		http.Error(w, "user not found", http.StatusNotFound)
 	case errors.Is(err, auth.ErrLoginTaken):
 		http.Error(w, "login already exists", http.StatusConflict)
+	case errors.Is(err, auth.ErrTelegramTaken):
+		http.Error(w, "telegram id already linked", http.StatusConflict)
 	case errors.Is(err, auth.ErrLastAdmin):
 		http.Error(w, "cannot remove the last administrator", http.StatusConflict)
 	default:

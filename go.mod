@@ -7,6 +7,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/gen2brain/jpegxl v0.4.5
 	github.com/go-jose/go-jose/v4 v4.1.4
+	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	golang.org/x/crypto v0.53.0
 	golang.org/x/image v0.46.0

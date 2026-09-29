@@ -38,6 +38,7 @@ type User struct {
 	DisplayName string
 	Role        string
 	Disabled    bool
+	TelegramID  int64 // 0 — not linked
 	CreatedAt   string
 }
 
@@ -80,6 +81,7 @@ func Open(path string) (*Service, error) {
 	}
 	migrateProgress(db)
 	migrateOIDC(db)
+	migrateTelegram(db)
 	return &Service{db: db}, nil
 }
 
@@ -87,6 +89,11 @@ func migrateOIDC(db *sql.DB) {
 	db.Exec(`ALTER TABLE users ADD COLUMN oidc_issuer TEXT NOT NULL DEFAULT ''`)
 	db.Exec(`ALTER TABLE users ADD COLUMN oidc_sub TEXT NOT NULL DEFAULT ''`)
 	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc ON users (oidc_issuer, oidc_sub) WHERE oidc_sub != ''`)
+}
+
+func migrateTelegram(db *sql.DB) {
+	db.Exec(`ALTER TABLE users ADD COLUMN telegram_id INTEGER NOT NULL DEFAULT 0`)
+	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_telegram ON users (telegram_id) WHERE telegram_id != 0`)
 }
 
 func (s *Service) Close() error { return s.db.Close() }
@@ -143,9 +150,9 @@ func tokenHash(token string) string {
 func (s *Service) EnsureLogin(ctx context.Context, login, displayName, role string) (*User, error) {
 	var u User
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, login, display_name, role, disabled, created_at
+		SELECT id, login, display_name, role, disabled, telegram_id, created_at
 		FROM users WHERE login = ?`, login).
-		Scan(&u.ID, &u.Login, &u.DisplayName, &u.Role, &u.Disabled, &u.CreatedAt)
+		Scan(&u.ID, &u.Login, &u.DisplayName, &u.Role, &u.Disabled, &u.TelegramID, &u.CreatedAt)
 	if err == nil {
 		return &u, nil
 	}
@@ -211,10 +218,10 @@ func (s *Service) GetByToken(ctx context.Context, token string) (*User, error) {
 	var u User
 	var expiresStr string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.login, u.display_name, u.role, u.disabled, u.created_at, s.expires_at
+		SELECT u.id, u.login, u.display_name, u.role, u.disabled, u.telegram_id, u.created_at, s.expires_at
 		FROM sessions s JOIN users u ON u.id = s.user_id
 		WHERE s.token_hash = ?`, tokenHash(token)).
-		Scan(&u.ID, &u.Login, &u.DisplayName, &u.Role, &u.Disabled, &u.CreatedAt, &expiresStr)
+		Scan(&u.ID, &u.Login, &u.DisplayName, &u.Role, &u.Disabled, &u.TelegramID, &u.CreatedAt, &expiresStr)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -254,7 +261,7 @@ func (s *Service) adminsBeside(ctx context.Context, excludeID int64) (int, error
 
 func (s *Service) ListUsers(ctx context.Context) ([]User, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, login, display_name, role, disabled, created_at
+		SELECT id, login, display_name, role, disabled, telegram_id, created_at
 		FROM users ORDER BY login`)
 	if err != nil {
 		return nil, err
@@ -263,7 +270,7 @@ func (s *Service) ListUsers(ctx context.Context) ([]User, error) {
 	var users []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Login, &u.DisplayName, &u.Role, &u.Disabled, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Login, &u.DisplayName, &u.Role, &u.Disabled, &u.TelegramID, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
@@ -303,9 +310,9 @@ func (s *Service) FindOrCreateOIDC(ctx context.Context, issuer, sub, login, disp
 
 	var u User
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, login, display_name, role, disabled, created_at
+		SELECT id, login, display_name, role, disabled, telegram_id, created_at
 		FROM users WHERE oidc_issuer = ? AND oidc_sub = ?`, issuer, sub).
-		Scan(&u.ID, &u.Login, &u.DisplayName, &u.Role, &u.Disabled, &u.CreatedAt)
+		Scan(&u.ID, &u.Login, &u.DisplayName, &u.Role, &u.Disabled, &u.TelegramID, &u.CreatedAt)
 	if err == nil {
 		if u.Disabled {
 			return nil, ErrInvalidCredentials
@@ -370,12 +377,84 @@ func sanitizeOIDCLogin(s string) string {
 func (s *Service) GetByID(ctx context.Context, id int64) (*User, error) {
 	var u User
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, login, display_name, role, disabled, created_at FROM users WHERE id = ?`, id).
-		Scan(&u.ID, &u.Login, &u.DisplayName, &u.Role, &u.Disabled, &u.CreatedAt)
+		SELECT id, login, display_name, role, disabled, telegram_id, created_at FROM users WHERE id = ?`, id).
+		Scan(&u.ID, &u.Login, &u.DisplayName, &u.Role, &u.Disabled, &u.TelegramID, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	return &u, err
+}
+
+// GetByTelegramID returns the user linked to a Telegram account.
+func (s *Service) GetByTelegramID(ctx context.Context, tgID int64) (*User, error) {
+	if tgID == 0 {
+		return nil, ErrNotFound
+	}
+	var u User
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, login, display_name, role, disabled, telegram_id, created_at
+		FROM users WHERE telegram_id = ?`, tgID).
+		Scan(&u.ID, &u.Login, &u.DisplayName, &u.Role, &u.Disabled, &u.TelegramID, &u.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if u.Disabled {
+		return nil, ErrInvalidCredentials
+	}
+	return &u, nil
+}
+
+var ErrTelegramTaken = errors.New("telegram id already linked")
+
+// SetTelegramID links (or clears, when tgID is 0) a Telegram account to a user.
+func (s *Service) SetTelegramID(ctx context.Context, userID, tgID int64) error {
+	if _, err := s.GetByID(ctx, userID); err != nil {
+		return err
+	}
+	if tgID != 0 {
+		var other int64
+		err := s.db.QueryRowContext(ctx,
+			`SELECT id FROM users WHERE telegram_id = ? AND id != ?`, tgID, userID).Scan(&other)
+		if err == nil {
+			return ErrTelegramTaken
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE users SET telegram_id = ? WHERE id = ?`, tgID, userID)
+	return err
+}
+
+// AuthorizeTelegram creates a RoleUser account for a Telegram id if none exists.
+func (s *Service) AuthorizeTelegram(ctx context.Context, tgID int64, displayName string) (*User, error) {
+	if tgID == 0 {
+		return nil, errors.New("telegram id is required")
+	}
+	if u, err := s.GetByTelegramID(ctx, tgID); err == nil {
+		return u, nil
+	} else if !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrInvalidCredentials) {
+		return nil, err
+	}
+	login := fmt.Sprintf("tg_%d", tgID)
+	displayName = strings.TrimSpace(displayName)
+	if displayName == "" {
+		displayName = login
+	}
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO users (login, password_hash, display_name, role, telegram_id)
+		VALUES (?, '', ?, ?, ?)`, login, displayName, RoleUser, tgID)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return nil, ErrTelegramTaken
+		}
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return s.GetByID(ctx, id)
 }
 
 // UpdateUser changes the provided fields (nil — leave as is). Demoting

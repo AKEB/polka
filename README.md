@@ -223,6 +223,21 @@ polka serve \
 OIDC-only accounts have no password (password login stays available for
 accounts created by an admin). Promote users to admin in *Manage → Users*.
 
+### Telegram bot (optional)
+
+Set `POLKA_TELEGRAM_TOKEN` (or `--telegram-token`) to a [BotFather](https://t.me/BotFather)
+token. The bot long-polls Telegram and offers search, book cards with covers,
+and downloads (native format, zip, compact fb2, on-the-fly EPUB/FB2 conversion).
+
+Access is limited to Polka users with a linked Telegram ID:
+
+1. Ask the person for their Telegram numeric ID (the bot prints it when access
+   is denied), **or**
+2. In *Manage → Users* set **Telegram**, **or**
+3. As an admin already linked in Telegram: `/add <telegram_id>`
+
+Search examples: plain text, `/search …`, `title:=…`, `series:=Дозоры and author:Лукьяненко`.
+
 External rating/recommendation sources are configured in the web UI
 (*Manage → External ratings / Similar books*) and are **off by default**
 except local recommendations — nothing is queried without the admin's

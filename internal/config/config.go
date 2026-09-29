@@ -30,6 +30,9 @@ type Config struct {
 	OIDCClientSecret string
 	OIDCRedirectURL  string
 	OIDCName         string // button label, e.g. "Keycloak"
+	// TelegramBotToken enables the Telegram bot when non-empty
+	// (BotFather token). Users must have telegram_id set by an admin.
+	TelegramBotToken string
 	// Version is the build version (set by the binary at startup).
 	Version string
 }
@@ -79,6 +82,7 @@ func Load(args []string, extra func(*flag.FlagSet)) (*Config, []string, error) {
 	fs.StringVar(&cfg.OIDCClientSecret, "oidc-client-secret", env("POLKA_OIDC_CLIENT_SECRET", ""), "OIDC client secret")
 	fs.StringVar(&cfg.OIDCRedirectURL, "oidc-redirect-url", env("POLKA_OIDC_REDIRECT_URL", ""), "OIDC callback URL (default: <public-url>/auth/oidc/callback)")
 	fs.StringVar(&cfg.OIDCName, "oidc-name", env("POLKA_OIDC_NAME", ""), "OIDC button label on the login page")
+	fs.StringVar(&cfg.TelegramBotToken, "telegram-token", env("POLKA_TELEGRAM_TOKEN", ""), "Telegram bot token (enables the bot)")
 	if extra != nil {
 		extra(fs)
 	}

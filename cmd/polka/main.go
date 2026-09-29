@@ -22,6 +22,7 @@ import (
 	"github.com/vestigiumincaligne/polka/internal/library"
 	"github.com/vestigiumincaligne/polka/internal/server"
 	"github.com/vestigiumincaligne/polka/internal/store"
+	"github.com/vestigiumincaligne/polka/internal/tgbot"
 	"github.com/vestigiumincaligne/polka/web"
 )
 
@@ -131,6 +132,20 @@ func runServe(log *slog.Logger, args []string) error {
 
 	srv := server.New(cfg, log, st, lib, users, nil, webFS)
 
+	botCtx, botCancel := context.WithCancel(context.Background())
+	defer botCancel()
+	if cfg.TelegramBotToken != "" {
+		bot, err := tgbot.New(cfg.TelegramBotToken, st, users, lib, log)
+		if err != nil {
+			return fmt.Errorf("telegram bot: %w", err)
+		}
+		go func() {
+			if err := bot.Run(botCtx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Error("telegram bot", "error", err)
+			}
+		}()
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("polka starting", "version", version, "addr", cfg.Addr, "db", cfg.DBPath())
@@ -143,10 +158,12 @@ func runServe(log *slog.Logger, args []string) error {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	select {
 	case err := <-errCh:
+		botCancel()
 		return err
 	case <-stop:
 	}
 
+	botCancel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {

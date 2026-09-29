@@ -54,6 +54,21 @@ const AdminUsersPage = ({ me }) => {
     updateUser(u.id, { password }).then(() => alert(t("users.passwordDone"))).catch(showError);
   };
 
+  const setTelegram = (u) => {
+    const current = u.telegramId ? String(u.telegramId) : "";
+    const raw = prompt(t("users.telegramPrompt", { login: u.login }), current);
+    if (raw === null) return;
+    const trimmed = raw.trim();
+    const telegramId = trimmed === "" ? 0 : Number(trimmed);
+    if (trimmed !== "" && (!Number.isInteger(telegramId) || telegramId <= 0)) {
+      alert(t("users.telegramInvalid"));
+      return;
+    }
+    updateUser(u.id, { telegramId })
+      .then(reload)
+      .catch(showError);
+  };
+
   const remove = (u) => {
     if (!confirm(t("users.deleteConfirm", { login: u.login }))) return;
     deleteUser(u.id).then(reload).catch(showError);
@@ -78,6 +93,7 @@ const AdminUsersPage = ({ me }) => {
             <tr>
               <th>{t("users.login")}</th>
               <th>{t("users.name")}</th>
+              <th>{t("users.telegram")}</th>
               <th>{t("users.role")}</th>
               <th>{t("users.status")}</th>
               <th aria-label="actions" />
@@ -88,6 +104,7 @@ const AdminUsersPage = ({ me }) => {
               <tr key={u.id} className={u.disabled ? "is-disabled" : ""}>
                 <td>{u.login}{u.id === me?.id && <span className="tag users-table__you">{t("users.you")}</span>}</td>
                 <td>{u.displayName || "—"}</td>
+                <td>{u.telegramId || "—"}</td>
                 <td>
                   <span className={`tag ${u.role === "admin" ? "users-table__admin" : ""}`}>
                     {u.role === "admin" ? t("users.admin") : t("users.reader")}
@@ -97,6 +114,9 @@ const AdminUsersPage = ({ me }) => {
                 <td className="users-table__actions">
                   <button type="button" className="btn btn-link" onClick={() => resetPassword(u)}>
                     {t("users.password")}
+                  </button>
+                  <button type="button" className="btn btn-link" onClick={() => setTelegram(u)}>
+                    {t("users.telegram")}
                   </button>
                   <button type="button" className="btn btn-link" onClick={() => toggleRole(u)}>
                     {u.role === "admin" ? t("users.makeReader") : t("users.makeAdmin")}
