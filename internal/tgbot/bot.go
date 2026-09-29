@@ -413,6 +413,7 @@ func (b *Bot) formatResults(fromID int64, sid string, page int, books []store.Bo
 	if pages < 1 {
 		pages = 1
 	}
+	finished := b.finishedSet(fromID)
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf(b.tr(fromID, "found_header"), total, page+1, pages))
 	sb.WriteByte('\n')
@@ -421,7 +422,11 @@ func (b *Bot) formatResults(fromID int64, sid string, page int, books []store.Bo
 		n := start + i + 1
 		title := escapeTG(clipRunes(bk.Title, 180))
 		lang := escapeTG(langLabel(bk.Lang))
-		sb.WriteString(fmt.Sprintf("\n<b>%d.</b> 📚 %s (%s)\n", n, title, lang))
+		mark := ""
+		if finished[bk.ID] {
+			mark = " " + b.tr(fromID, "finished_mark")
+		}
+		sb.WriteString(fmt.Sprintf("\n<b>%d.</b> 📚 %s (%s)%s\n", n, title, lang, mark))
 		if bk.AuthorNames != "" {
 			sb.WriteString("✍️ " + escapeTG(clipRunes(bk.AuthorNames, 160)) + "\n")
 		}
@@ -439,8 +444,12 @@ func (b *Bot) formatResults(fromID int64, sid string, page int, books []store.Bo
 	var rows [][]tgbotapi.InlineKeyboardButton
 	var pick []tgbotapi.InlineKeyboardButton
 	for i, bk := range books {
+		icon := "📚"
+		if finished[bk.ID] {
+			icon = "✅"
+		}
 		pick = append(pick, tgbotapi.NewInlineKeyboardButtonData(
-			fmt.Sprintf("📚 %d", start+i+1),
+			fmt.Sprintf("%s %d", icon, start+i+1),
 			fmt.Sprintf("b:%d:%s:%d", bk.ID, sid, page),
 		))
 	}
@@ -459,6 +468,21 @@ func (b *Bot) formatResults(fromID int64, sid string, page int, books []store.Bo
 		tgbotapi.NewInlineKeyboardButtonData("❌ "+b.tr(fromID, "cancel"), "cancel"),
 	))
 	return text, tgbotapi.NewInlineKeyboardMarkup(rows...)
+}
+
+func (b *Bot) finishedSet(telegramID int64) map[int64]bool {
+	if b.users == nil {
+		return nil
+	}
+	u, err := b.users.GetByTelegramID(context.Background(), telegramID)
+	if err != nil || u == nil {
+		return nil
+	}
+	ids, err := b.users.FinishedBookIDs(context.Background(), u.ID)
+	if err != nil {
+		return nil
+	}
+	return ids
 }
 
 func (b *Bot) sendBookCard(ctx context.Context, chatID, fromID, bookID int64, back string) {
@@ -500,6 +524,9 @@ func (b *Bot) sendBookText(chatID int64, caption string, keyboard tgbotapi.Inlin
 func (b *Bot) formatBookCard(fromID int64, d *store.BookDetails) string {
 	var sb strings.Builder
 	sb.WriteString("<b>" + escapeTG(clipRunes(d.Title, 200)) + "</b>\n")
+	if finished := b.finishedSet(fromID); finished[d.ID] {
+		sb.WriteString(b.tr(fromID, "finished_mark") + "\n")
+	}
 	if d.AuthorNames != "" {
 		sb.WriteString("✍️ " + escapeTG(clipRunes(d.AuthorNames, 200)) + "\n")
 	}

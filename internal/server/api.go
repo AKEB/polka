@@ -51,6 +51,79 @@ func shelvesJSON(shelves []store.Shelf) []map[string]any {
 	return out
 }
 
+// booksForUser is booksJSON with Finished flags for the current user.
+func (s *Server) booksForUser(r *http.Request, books []store.Book) []map[string]any {
+	out := booksJSON(books)
+	s.markFinished(r, out)
+	return out
+}
+
+func (s *Server) shelvesForUser(r *http.Request, shelves []store.Shelf) []map[string]any {
+	out := shelvesJSON(shelves)
+	finished := s.finishedSet(r)
+	if len(finished) == 0 {
+		return out
+	}
+	for _, sh := range out {
+		if books, ok := sh["books"].([]map[string]any); ok {
+			markFinishedMaps(books, finished)
+		}
+	}
+	return out
+}
+
+func (s *Server) finishedSet(r *http.Request) map[int64]bool {
+	u := s.currentUser(r)
+	if u == nil {
+		return nil
+	}
+	ids, err := s.users.FinishedBookIDs(r.Context(), u.ID)
+	if err != nil {
+		return nil
+	}
+	return ids
+}
+
+func (s *Server) markFinished(r *http.Request, books []map[string]any) {
+	markFinishedMaps(books, s.finishedSet(r))
+}
+
+func (s *Server) markShelvesFinished(r *http.Request, shelves []map[string]any) {
+	finished := s.finishedSet(r)
+	if len(finished) == 0 {
+		return
+	}
+	for _, sh := range shelves {
+		if books, ok := sh["books"].([]map[string]any); ok {
+			markFinishedMaps(books, finished)
+		}
+	}
+}
+
+func markFinishedMaps(books []map[string]any, finished map[int64]bool) {
+	if len(finished) == 0 {
+		return
+	}
+	for _, b := range books {
+		id, ok := bookIDFromMap(b)
+		if ok && finished[id] {
+			b["Finished"] = true
+		}
+	}
+}
+
+func bookIDFromMap(b map[string]any) (int64, bool) {
+	switch v := b["BookID"].(type) {
+	case int64:
+		return v, true
+	case int:
+		return int64(v), true
+	case float64:
+		return int64(v), true
+	}
+	return 0, false
+}
+
 func intParam(r *http.Request, name string, def int) int {
 	if v, err := strconv.Atoi(r.URL.Query().Get(name)); err == nil && v > 0 {
 		return v
@@ -94,7 +167,7 @@ func (s *Server) handleGetHomeShelves(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, err)
 		return
 	}
-	out := shelvesJSON(shelves)
+	out := s.shelvesForUser(r, shelves)
 
 	// Personal shelves on top: "Reading now", "Finished", "Want to read",
 	// then recommendations ("Continue series", "For you").
@@ -116,6 +189,7 @@ func (s *Server) handleGetHomeShelves(w http.ResponseWriter, r *http.Request) {
 			personal = append(personal, wishlist)
 		}
 		personal = append(personal, s.recShelves(r, u.ID, limit)...)
+		s.markShelvesFinished(r, personal)
 		out = append(personal, out...)
 	}
 	// Collections ("100 books by Forbes"…) go between personal and shared shelves.
@@ -145,7 +219,7 @@ func (s *Server) wishlistShelf(r *http.Request, userID int64, limit int) map[str
 		return nil
 	}
 	return map[string]any{
-		"id": "wishlist", "title": wl.Name, "books": booksJSON(books), "hasMore": hasMore,
+		"id": "wishlist", "title": wl.Name, "books": s.booksForUser(r, books), "hasMore": hasMore,
 	}
 }
 
@@ -194,6 +268,7 @@ func (s *Server) finishedShelf(r *http.Request, userID int64, limit int) []map[s
 	for _, b := range books {
 		j := bookJSON(b)
 		j["ReadingProgress"] = 1.0
+		j["Finished"] = true
 		out = append(out, j)
 	}
 	return out
@@ -209,7 +284,7 @@ func (s *Server) handleGetCatalogShelves(w http.ResponseWriter, r *http.Request)
 	for i := range shelves {
 		shelves[i].Title = genres.NameLang(strings.TrimPrefix(shelves[i].Title, "genre_"), lang)
 	}
-	writeJSON(w, map[string]any{"shelves": shelvesJSON(shelves)})
+	writeJSON(w, map[string]any{"shelves": s.shelvesForUser(r, shelves)})
 }
 
 func (s *Server) handleGetShelfBooks(w http.ResponseWriter, r *http.Request) {
@@ -240,7 +315,7 @@ func (s *Server) handleGetShelfBooks(w http.ResponseWriter, r *http.Request) {
 		title = genres.NameLang(strings.TrimPrefix(shelfID, "genre_"), reqLang(r))
 	}
 	writeJSON(w, map[string]any{
-		"titlesList": booksJSON(books),
+		"titlesList": s.booksForUser(r, books),
 		"title":      title,
 		"hasMore":    hasMore,
 		"nextOffset": offset + len(books),
@@ -292,7 +367,7 @@ func (s *Server) handleGetBooksByIDs(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, err)
 		return
 	}
-	writeJSON(w, map[string]any{"titlesList": booksJSON(books)})
+	writeJSON(w, map[string]any{"titlesList": s.booksForUser(r, books)})
 }
 
 func (s *Server) handleGetSearchStats(w http.ResponseWriter, r *http.Request) {
@@ -319,7 +394,7 @@ func (s *Server) handleGetSearchStats(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetSearchTitles(w http.ResponseWriter, r *http.Request) {
 	query := searchParam(r)
 	if store.LooksLikeISBN(query) {
-		writeJSON(w, map[string]any{"titlesList": booksJSON(s.isbnBooks(r, query))})
+		writeJSON(w, map[string]any{"titlesList": s.booksForUser(r, s.isbnBooks(r, query))})
 		return
 	}
 	books, err := s.st.SearchTitles(store.WithLang(r.Context(), bookLang(r)), query, 250)
@@ -327,7 +402,7 @@ func (s *Server) handleGetSearchTitles(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, err)
 		return
 	}
-	writeJSON(w, map[string]any{"titlesList": booksJSON(books)})
+	writeJSON(w, map[string]any{"titlesList": s.booksForUser(r, books)})
 }
 
 func (s *Server) handleGetSearchAuthors(w http.ResponseWriter, r *http.Request) {
@@ -372,7 +447,7 @@ func (s *Server) handleGetAuthorBooks(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, err)
 		return
 	}
-	writeJSON(w, map[string]any{"titlesList": booksJSON(books), "title": name, "languages": s.languageMaps(r, langs)})
+	writeJSON(w, map[string]any{"titlesList": s.booksForUser(r, books), "title": name, "languages": s.languageMaps(r, langs)})
 }
 
 func (s *Server) handleGetSeriesBooks(w http.ResponseWriter, r *http.Request) {
@@ -391,7 +466,7 @@ func (s *Server) handleGetSeriesBooks(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, err)
 		return
 	}
-	writeJSON(w, map[string]any{"titlesList": booksJSON(books), "title": title, "languages": s.languageMaps(r, langs)})
+	writeJSON(w, map[string]any{"titlesList": s.booksForUser(r, books), "title": title, "languages": s.languageMaps(r, langs)})
 }
 
 func (s *Server) handleGetBookForm(w http.ResponseWriter, r *http.Request) {

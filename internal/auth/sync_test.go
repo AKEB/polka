@@ -190,4 +190,8 @@ func TestMarkFinished(t *testing.T) {
 	if err != nil || len(done) != 1 || done[0].BookID != 42 {
 		t.Fatalf("ListFinished: %v %v", done, err)
 	}
+	ids, err := s.FinishedBookIDs(ctx, u.ID)
+	if err != nil || !ids[42] || len(ids) != 1 {
+		t.Fatalf("FinishedBookIDs: %v %v", ids, err)
+	}
 }

@@ -42,9 +42,36 @@
   background: rgba(0, 0, 0, 0.8);
 }
 
+.book-card__finished {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(22, 163, 74, 0.95);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: var(--shadow-sm);
+}
+
+.book-card--finished .book-card__cover-link {
+  box-shadow: inset 0 0 0 2px rgba(22, 163, 74, 0.45), var(--shadow-sm);
+}
+
 .book-card__cover-link:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
+}
+
+.book-card--finished .book-card__cover-link:hover {
+  box-shadow: inset 0 0 0 2px rgba(22, 163, 74, 0.55), var(--shadow-md);
 }
 
 .book-card__cover {

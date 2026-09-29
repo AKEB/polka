@@ -62,4 +62,11 @@ describe("BookCard", () => {
     const fills = document.querySelectorAll(".book-card__progress-fill");
     expect(fills[fills.length - 1].style.width).toBe("2%");
   });
+
+  it("marks finished books with a check badge instead of a full progress bar", () => {
+    renderCard({ ...book, Finished: true, ReadingProgress: 1 });
+    expect(document.querySelector(".book-card__finished")).toHaveAttribute("title", t("book.finished.on"));
+    expect(document.querySelector(".book-card--finished")).not.toBeNull();
+    expect(document.querySelector(".book-card__progress")).toBeNull();
+  });
 });

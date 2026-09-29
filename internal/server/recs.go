@@ -167,5 +167,6 @@ func (s *Server) handleGetSimilarBooks(w http.ResponseWriter, r *http.Request) {
 	if len(books) > 18 {
 		books = books[:18]
 	}
+	s.markFinished(r, books)
 	writeJSON(w, map[string]any{"similar": books, "external": externalOnly})
 }

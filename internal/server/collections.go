@@ -87,7 +87,7 @@ func (s *Server) collectionShelves(r *http.Request, limit int) []map[string]any 
 			"title":    c.Title,
 			"subtitle": tr(reqLang(r), "shelf.collection.sub", len(all), c.Total),
 			"slug":     c.Slug,
-			"books":    booksJSON(books),
+			"books":    s.booksForUser(r, books),
 			"hasMore":  hasMore,
 		})
 	}

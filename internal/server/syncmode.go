@@ -99,7 +99,7 @@ func (s *Server) resolveBooksJSON(r *http.Request, ids []int64) []map[string]any
 		if err != nil {
 			return []map[string]any{}
 		}
-		return booksJSON(books)
+		return s.booksForUser(r, books)
 	}
 
 	out := make([]map[string]any, 0, len(ids))
@@ -126,6 +126,7 @@ func (s *Server) resolveBooksJSON(r *http.Request, ids []int64) []map[string]any
 			out = append(out, j)
 		}
 	}
+	s.markFinished(r, out)
 	return out
 }
 

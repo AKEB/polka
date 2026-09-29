@@ -10,16 +10,18 @@ const BookCard = ({ book, size = "md", onForget }) => {
 
   if (!book) return null;
 
-  const { BookID, Title, AuthorsNames, SeriesTitle, SeqNumber, Year, LibRate, ReadingProgress } = book;
+  const { BookID, Title, AuthorsNames, SeriesTitle, SeqNumber, Year, LibRate, ReadingProgress, Finished } = book;
 
   const initials = (Title || "").trim().slice(0, 2).toUpperCase();
   const seriesLabel =
     SeriesTitle && SeqNumber
       ? `${SeriesTitle} · ${SeqNumber}`
       : SeriesTitle || (Year ? `${Year}` : "");
+  const isFinished = Boolean(Finished) || (typeof ReadingProgress === "number" && ReadingProgress >= 0.98);
+  const showProgress = typeof ReadingProgress === "number" && ReadingProgress < 0.98;
 
   return (
-    <article className={`book-card book-card--${size}`}>
+    <article className={`book-card book-card--${size}${isFinished ? " book-card--finished" : ""}`}>
       <div className="book-card__cover-wrap">
         <Link to={`/book/${BookID}`} className="book-card__cover-link" aria-label={Title}>
           <div className="book-card__cover">
@@ -35,12 +37,17 @@ const BookCard = ({ book, size = "md", onForget }) => {
                 onError={() => setCoverFailed(true)}
               />
             )}
+            {isFinished && (
+              <div className="book-card__finished" title={t("book.finished.on")}>
+                ✓
+              </div>
+            )}
             {LibRate > 0 && (
               <div className="book-card__rating-badge">
                 <RatingStars value={LibRate} size="sm" showNumeric={false} />
               </div>
             )}
-            {typeof ReadingProgress === "number" && (
+            {showProgress && (
               <div className="book-card__progress" title={`${Math.round(ReadingProgress * 100)}%`}>
                 <div
                   className="book-card__progress-fill"

@@ -116,6 +116,26 @@ func (s *Service) ListFinished(ctx context.Context, userID int64, limit int) ([]
 	return out, rows.Err()
 }
 
+// FinishedBookIDs returns the set of fully read book ids for the user.
+func (s *Service) FinishedBookIDs(ctx context.Context, userID int64) (map[int64]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT book_id FROM reading_progress
+		WHERE user_id = ? AND cleared = 0 AND overall >= 0.98`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]bool{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
 // MarkFinished records the book as fully read (overall = 1).
 func (s *Service) MarkFinished(ctx context.Context, userID, bookID int64) error {
 	return s.SaveProgress(ctx, userID, bookID, Progress{BookID: bookID, Overall: 1})
