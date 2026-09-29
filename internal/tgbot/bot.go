@@ -202,7 +202,7 @@ func (b *Bot) onSearch(ctx context.Context, msg *tgbotapi.Message, raw string) {
 		ids[i] = bk.ID
 	}
 	sid := b.saveSession(filters, ids, total)
-	b.sendResultsPage(msg.Chat.ID, msg.From.ID, sid, 0, books, total)
+	b.sendResultsPage(msg.Chat.ID, msg.From.ID, sid, 0, firstPage(books), total)
 }
 
 func (b *Bot) onID(ctx context.Context, msg *tgbotapi.Message, args string) {
@@ -231,7 +231,7 @@ func (b *Bot) onRandom(ctx context.Context, msg *tgbotapi.Message) {
 		ids[i] = bk.ID
 	}
 	sid := b.saveSession(nil, ids, len(books))
-	b.sendResultsPage(msg.Chat.ID, msg.From.ID, sid, 0, books, len(books))
+	b.sendResultsPage(msg.Chat.ID, msg.From.ID, sid, 0, firstPage(books), len(books))
 }
 
 func (b *Bot) onStats(ctx context.Context, msg *tgbotapi.Message) {
@@ -392,13 +392,20 @@ func (b *Bot) sendSessionPage(ctx context.Context, chatID, fromID int64, sid str
 }
 
 func (b *Bot) sendResultsPage(chatID, fromID int64, sid string, page int, pageBooks []store.Book, total int) {
-	text, keyboard := b.formatResults(fromID, sid, page, pageBooks, total)
+	text, keyboard := b.formatResults(fromID, sid, page, firstPage(pageBooks), total)
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = keyboard
 	if _, err := b.api.Send(msg); err != nil {
 		b.log.Warn("tg send results", "error", err)
 	}
+}
+
+func firstPage(books []store.Book) []store.Book {
+	if len(books) > pageSize {
+		return books[:pageSize]
+	}
+	return books
 }
 
 func (b *Bot) formatResults(fromID int64, sid string, page int, books []store.Book, total int) (string, tgbotapi.InlineKeyboardMarkup) {
