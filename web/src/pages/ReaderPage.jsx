@@ -11,6 +11,7 @@ import {
   saveProgress,
   saveReaderPrefs,
 } from "../api/reader";
+import { readerThemeFor, resolveReaderTheme } from "../theme";
 import "./ReaderPage.css";
 
 // PDF and EPUB engines are heavy — load them only when such a file is opened.
@@ -28,9 +29,10 @@ const THEMES = () => [
 
 const loadPrefs = () => {
   try {
-    return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem("polka-reader-prefs")) };
+    const stored = JSON.parse(localStorage.getItem("polka-reader-prefs") || "{}");
+    return { ...DEFAULT_PREFS, ...stored, theme: resolveReaderTheme(stored.theme) };
   } catch {
-    return { ...DEFAULT_PREFS };
+    return { ...DEFAULT_PREFS, theme: readerThemeFor() };
   }
 };
 
@@ -63,6 +65,7 @@ const ReaderPage = () => {
 
   // Server-side prefs override the local copy (they follow the user
   // between devices); public mode falls back to localStorage silently.
+  // Paper/night follow the site light/dark theme; only sepia is kept as-is.
   useEffect(() => {
     let cancelled = false;
     fetchReaderPrefs()
@@ -70,13 +73,37 @@ const ReaderPage = () => {
         if (cancelled) return;
         prefsSynced.current = true;
         if (server && Object.keys(server).length) {
-          setPrefs((prev) => ({ ...prev, ...server }));
+          setPrefs((prev) => {
+            const merged = { ...prev, ...server };
+            return { ...merged, theme: resolveReaderTheme(merged.theme) };
+          });
         }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Keep the reader chrome in sync when the site theme flips elsewhere.
+  useEffect(() => {
+    const onTheme = () => {
+      setPrefs((prev) => {
+        if (prev.theme === "sepia") return prev;
+        const theme = readerThemeFor();
+        if (prev.theme === theme) return prev;
+        const next = { ...prev, theme };
+        try {
+          localStorage.setItem("polka-reader-prefs", JSON.stringify(next));
+        } catch {
+          /* ignore */
+        }
+        if (prefsSynced.current) saveReaderPrefs({ theme }).catch(() => {});
+        return next;
+      });
+    };
+    window.addEventListener("polka-theme-change", onTheme);
+    return () => window.removeEventListener("polka-theme-change", onTheme);
   }, []);
 
   const totalRef = useRef(0);
@@ -284,7 +311,7 @@ const ReaderPage = () => {
   if (error) {
     const unsupported = error.status === 415;
     return (
-      <div className="reader reader--paper">
+      <div className={`reader reader--${prefs.theme}`}>
         <div className="reader__error">
           <p>{unsupported ? t("reader.unsupported") : t("reader.fail")}</p>
           <Link to={`/book/${bookId}`} className="btn btn-ghost">

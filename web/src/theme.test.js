@@ -41,4 +41,24 @@ describe("theme", () => {
     expect(setTheme("light")).toBe("light");
     expect(document.documentElement.classList.contains("theme-light")).toBe(true);
   });
+
+  it("maps site theme onto reader paper/night and keeps sepia", async () => {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation(() => ({
+        matches: false,
+        media: "",
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+    const { readerThemeFor, resolveReaderTheme, setTheme } = await import("./theme");
+    expect(readerThemeFor()).toBe("paper");
+    expect(resolveReaderTheme("sepia")).toBe("sepia");
+    expect(resolveReaderTheme("night")).toBe("paper");
+    setTheme("dark");
+    expect(readerThemeFor()).toBe("night");
+    expect(resolveReaderTheme("paper")).toBe("night");
+    expect(resolveReaderTheme("sepia")).toBe("sepia");
+  });
 });

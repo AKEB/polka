@@ -4,9 +4,11 @@
   z-index: 60;
   background: rgba(0, 0, 0, 0.45);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .kosync__card {
@@ -17,6 +19,9 @@
   padding: 22px 24px;
   max-width: 440px;
   width: 100%;
+  margin-block: auto;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
 }
 

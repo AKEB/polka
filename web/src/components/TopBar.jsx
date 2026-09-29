@@ -145,7 +145,7 @@ const TopBar = ({ user, onLogout, desktop = false, sync = null }) => {
             aria-label={theme === "dark" ? t("theme.toLight") : t("theme.toDark")}
             onClick={flipTheme}
           >
-            <span aria-hidden="true">{theme === "dark" ? "🌙" : "☀️"}</span>
+            <span aria-hidden="true">{theme === "dark" ? "☀️" : "🌙"}</span>
           </button>
           <button
             type="button"

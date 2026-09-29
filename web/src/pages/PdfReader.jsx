@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import * as pdfjsLib from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { fetchProgress, localProgress, saveProgress } from "../api/reader";
+import { readerThemeFor } from "../theme";
 import "./ReaderPage.css";
 import "./PdfReader.css";
 
@@ -17,12 +18,19 @@ const PdfReader = ({ bookId, meta }) => {
   const [pageSize, setPageSize] = useState(null); // approximate dimensions for placeholders
   const [current, setCurrent] = useState(1);
   const [error, setError] = useState(null);
+  const [theme, setTheme] = useState(() => readerThemeFor());
 
   const containerRef = useRef(null);
   const rendered = useRef(new Set());
   const serverStored = useRef(false);
   const restoreTo = useRef(1);
   const saveTimer = useRef(null);
+
+  useEffect(() => {
+    const onTheme = () => setTheme(readerThemeFor());
+    window.addEventListener("polka-theme-change", onTheme);
+    return () => window.removeEventListener("polka-theme-change", onTheme);
+  }, []);
 
   // Load the document and the saved position
   useEffect(() => {
@@ -128,7 +136,7 @@ const PdfReader = ({ bookId, meta }) => {
 
   if (error) {
     return (
-      <div className="reader reader--paper">
+      <div className={`reader reader--${theme}`}>
         <div className="reader__error">
           <p>{t("reader.pdfFail")}</p>
           <Link to={`/book/${bookId}`} className="btn btn-ghost">{t("reader.back")}</Link>
@@ -141,7 +149,7 @@ const PdfReader = ({ bookId, meta }) => {
   const overall = numPages > 0 ? current / numPages : 0;
 
   return (
-    <div className="reader reader--paper pdf-reader">
+    <div className={`reader reader--${theme} pdf-reader`}>
       <header className="reader__bar">
         <Link to={`/book/${bookId}`} className="reader__bar-btn" title={t("reader.toBook")}>←</Link>
         <div className="reader__bar-title">

@@ -17,6 +17,12 @@ export const getTheme = () => {
   return "light";
 };
 
+// Map the site light/dark choice onto the online reader's paper/night themes.
+// Sepia stays a deliberate reader-only override.
+export const readerThemeFor = (site = getTheme()) => (site === "dark" ? "night" : "paper");
+
+export const resolveReaderTheme = (theme) => (theme === "sepia" ? "sepia" : readerThemeFor());
+
 export const applyTheme = (theme) => {
   const next = theme === "dark" ? "dark" : "light";
   const root = document.documentElement;
@@ -26,6 +32,11 @@ export const applyTheme = (theme) => {
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) {
     meta.setAttribute("content", next === "dark" ? "#15120e" : "#f6f4ee");
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("polka-theme-change", { detail: next }));
+  } catch {
+    /* ignore */
   }
 };
 
