@@ -1,4 +1,5 @@
 import { t, currentLang, setLang } from "../i18n";
+import { getTheme, toggleTheme } from "../theme";
 import KosyncDialog from "./KosyncDialog";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -6,6 +7,7 @@ import "./TopBar.css";
 
 const TopBar = ({ user, onLogout, desktop = false, sync = null }) => {
   const [kosyncOpen, setKosyncOpen] = useState(false);
+  const [theme, setThemeState] = useState(() => getTheme());
   // Narrow screens collapse the search into an icon; tapping it expands
   // the field over the top bar.
   const [searchOpen, setSearchOpen] = useState(false);
@@ -42,6 +44,8 @@ const TopBar = ({ user, onLogout, desktop = false, sync = null }) => {
 
   const isActive = (path) =>
     path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
+
+  const flipTheme = () => setThemeState(toggleTheme());
 
   return (
     <header className="topbar">
@@ -133,14 +137,25 @@ const TopBar = ({ user, onLogout, desktop = false, sync = null }) => {
           </button>
         </form>
 
-        <button
-          type="button"
-          className="topbar__lang"
-          title="Language"
-          onClick={() => setLang(currentLang() === "ru" ? "en" : "ru")}
-        >
-          {currentLang() === "ru" ? "EN" : "RU"}
-        </button>
+        <div className="topbar__prefs">
+          <button
+            type="button"
+            className="topbar__theme"
+            title={theme === "dark" ? t("theme.toLight") : t("theme.toDark")}
+            aria-label={theme === "dark" ? t("theme.toLight") : t("theme.toDark")}
+            onClick={flipTheme}
+          >
+            <span aria-hidden="true">{theme === "dark" ? "🌙" : "☀️"}</span>
+          </button>
+          <button
+            type="button"
+            className="topbar__lang"
+            title="Language"
+            onClick={() => setLang(currentLang() === "ru" ? "en" : "ru")}
+          >
+            {currentLang() === "ru" ? "EN" : "RU"}
+          </button>
+        </div>
 
         {user && (
           <div className="topbar__user">

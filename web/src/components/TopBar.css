@@ -2,7 +2,7 @@
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(246, 244, 238, 0.85);
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
   backdrop-filter: saturate(160%) blur(12px);
   border-bottom: 1px solid var(--border);
 }
@@ -175,7 +175,7 @@
     grid-column: 2;
   }
 
-  .topbar__lang {
+  .topbar__prefs {
     grid-row: 1;
     grid-column: 3;
   }
@@ -284,6 +284,15 @@
   vertical-align: middle;
 }
 
+.topbar__prefs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+.topbar__theme,
 .topbar__lang {
   border: 1px solid var(--border);
   background: none;
@@ -294,9 +303,17 @@
   font-weight: 700;
   letter-spacing: 0.06em;
   cursor: pointer;
-  margin-left: 8px;
+  margin-left: 0;
+  line-height: 1;
 }
 
+.topbar__theme {
+  font-size: 15px;
+  padding: 5px 9px;
+  letter-spacing: 0;
+}
+
+.topbar__theme:hover,
 .topbar__lang:hover {
   color: var(--fg);
   border-color: var(--fg);

@@ -1,5 +1,6 @@
 /* ---------- Theme tokens ---------- */
-:root {
+:root,
+:root.theme-light {
   --bg: #f6f4ee;
   --bg-card: #ffffff;
   --bg-elevated: #ffffff;
@@ -37,21 +38,28 @@
     "Helvetica Neue", Arial, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root.theme-auto {
-    --bg: #15120e;
-    --bg-card: #1f1c17;
-    --bg-elevated: #26221c;
-    --bg-muted: #2a2620;
-    --bg-overlay: rgba(0, 0, 0, 0.7);
+:root.theme-dark {
+  --bg: #15120e;
+  --bg-card: #1f1c17;
+  --bg-elevated: #26221c;
+  --bg-muted: #2a2620;
+  --bg-overlay: rgba(0, 0, 0, 0.7);
 
-    --fg: #f6f4ee;
-    --fg-muted: #b9b2a3;
-    --fg-subtle: #8e8a80;
+  --fg: #f6f4ee;
+  --fg-muted: #b9b2a3;
+  --fg-subtle: #8e8a80;
+  --fg-on-accent: #1a1714;
 
-    --border: #2f2b24;
-    --border-strong: #41392d;
-  }
+  --accent: #ffd24c;
+  --accent-strong: #f1b300;
+  --accent-soft: rgba(255, 210, 76, 0.18);
+
+  --border: #2f2b24;
+  --border-strong: #41392d;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.5);
 }
 
 /* ---------- Reset ---------- */

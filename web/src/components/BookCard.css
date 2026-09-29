@@ -103,7 +103,7 @@
   position: absolute;
   bottom: 8px;
   left: 8px;
-  background: rgba(255, 255, 255, 0.92);
+  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
   padding: 2px 8px;
   border-radius: 999px;
   backdrop-filter: blur(6px);
