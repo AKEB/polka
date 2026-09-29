@@ -14,6 +14,7 @@ import ListsPage from "./pages/ListsPage";
 import SyncPage from "./pages/SyncPage";
 import { fetchConfig } from "./api/fetchBooks";
 import { fetchMe, logout } from "./api/auth";
+import { getFilterLang, setFilterLang } from "./filters";
 import "./theme.css";
 import "./Root.css";
 
@@ -25,6 +26,12 @@ const Root = () => {
   const [sync, setSync] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [version, setVersion] = useState("");
+  const [filterLang, setFilterLangState] = useState(getFilterLang);
+
+  const changeFilterLang = (code) => {
+    setFilterLang(code);
+    setFilterLangState(code);
+  };
 
   const loadConfig = useCallback(() => {
     fetchConfig()
@@ -89,16 +96,16 @@ const Root = () => {
   return (
     <HashRouter>
       <Routes>
-        <Route path="/" element={layout(<HomePage config={config} />)} />
-        <Route path="/search" element={layout(<SearchPage config={config} />)} />
+        <Route path="/" element={layout(<HomePage config={config} filterLang={filterLang} onFilterLang={changeFilterLang} />)} />
+        <Route path="/search" element={layout(<SearchPage config={config} filterLang={filterLang} onFilterLang={changeFilterLang} />)} />
         <Route path="/lists" element={user ? layout(<ListsPage />) : <Navigate to="/" replace />} />
         <Route path="/book/:bookId" element={layout(<BookPage user={user} sync={sync} />)} />
         {(sync || isDesktop) && <Route path="/sync" element={layout(<SyncPage />)} />}
         {/* Читалка — без общей шапки, у неё свой минимальный интерфейс */}
         <Route path="/read/:bookId" element={<ReaderPage />} />
-        <Route path="/author/:authorId" element={layout(<BookListPage kind="author" />)} />
-        <Route path="/series/:seriesId" element={layout(<BookListPage kind="series" />)} />
-        <Route path="/shelf/:shelfId" element={layout(<BookListPage kind="shelf" />)} />
+        <Route path="/author/:authorId" element={layout(<BookListPage kind="author" config={config} filterLang={filterLang} onFilterLang={changeFilterLang} />)} />
+        <Route path="/series/:seriesId" element={layout(<BookListPage kind="series" config={config} filterLang={filterLang} onFilterLang={changeFilterLang} />)} />
+        <Route path="/shelf/:shelfId" element={layout(<BookListPage kind="shelf" config={config} filterLang={filterLang} onFilterLang={changeFilterLang} />)} />
         <Route
           path="/admin/users"
           element={

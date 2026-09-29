@@ -646,3 +646,71 @@ func TestSearchRanking(t *testing.T) {
 		t.Errorf("opds order: %v / %v", titles(page1), titles(page2))
 	}
 }
+
+func TestUpdateBookAndLangFilter(t *testing.T) {
+	st, ids := newLibrary(t)
+	ctx := context.Background()
+	war := ids["Война и мир"]
+
+	if err := st.UpdateBook(ctx, war, BookUpdate{
+		Title:   "War and Peace",
+		Authors: []AuthorName{{Last: "Tolstoy", First: "Leo"}},
+		Series:  "Classics", SeriesNum: 1,
+		Year: 1869, Lang: "en", Genres: []string{"prose_classic"},
+		ISBN: "978-0-14-044793-4",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := st.BookDetails(ctx, war)
+	if err != nil || d.Title != "War and Peace" || d.Lang != "en" || d.ISBN != "9780140447934" {
+		t.Fatalf("updated details: %+v %v", d, err)
+	}
+	if len(d.Authors) != 1 || d.Authors[0].Last != "Tolstoy" || len(d.Series) != 1 || d.Series[0].Title != "Classics" {
+		t.Errorf("authors/series: %+v", d)
+	}
+	if got := titles(must(st.SearchTitles(ctx, "War", 10))); len(got) != 1 || got[0] != "War and Peace" {
+		t.Errorf("search after rename: %v", got)
+	}
+	if got := titles(must(st.SearchTitles(ctx, "Война", 10))); len(got) != 0 {
+		t.Errorf("old title still indexed: %v", got)
+	}
+
+	en := titles(must(st.SearchTitles(WithLang(ctx, "en"), "Peace", 10)))
+	if len(en) != 1 {
+		t.Errorf("en filter: %v", en)
+	}
+	ru, _, err := st.ShelfBooks(WithLang(ctx, "ru"), "newest", 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range ru {
+		if b.ID == war {
+			t.Error("english book leaked into ru newest")
+		}
+		if b.Lang != "ru" {
+			t.Errorf("ru shelf has %q", b.Lang)
+		}
+	}
+	langs, err := st.Languages(ctx)
+	if err != nil || len(langs) < 2 {
+		t.Fatalf("languages: %+v %v", langs, err)
+	}
+	classic, err := st.LanguagesForShelf(ctx, "genre_prose_classic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byCode := map[string]int{}
+	for _, l := range classic {
+		byCode[l.Code] = l.Books
+	}
+	if byCode["en"] != 1 || byCode["ru"] < 1 {
+		t.Errorf("genre language counts = %+v", classic)
+	}
+
+	if err := st.UpdateBook(ctx, 99999, BookUpdate{Title: "x"}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing book: %v", err)
+	}
+	if err := st.UpdateBook(ctx, war, BookUpdate{Title: "  "}); err == nil {
+		t.Error("empty title must fail")
+	}
+}

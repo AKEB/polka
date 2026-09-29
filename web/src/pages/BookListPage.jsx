@@ -2,6 +2,7 @@ import { t } from "../i18n";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import BookCard from "../components/BookCard";
+import LangFilter from "../components/LangFilter";
 import { fetchAuthorBooks, fetchSeriesBooks, fetchShelfBooks } from "../api/fetchBooks";
 import { exportUrl } from "../api/manage";
 import "./BookListPage.css";
@@ -18,7 +19,7 @@ const KIND_LABEL = () => ({
   shelf: t("nav.catalog"),
 });
 
-const BookListPage = ({ kind }) => {
+const BookListPage = ({ kind, config, filterLang, onFilterLang }) => {
   const params = useParams();
   const id =
     kind === "author" ? params.authorId : kind === "series" ? params.seriesId : params.shelfId;
@@ -36,6 +37,7 @@ const BookListPage = ({ kind }) => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [languages, setLanguages] = useState(null);
 
   useEffect(() => {
     if (!id) return undefined;
@@ -43,6 +45,7 @@ const BookListPage = ({ kind }) => {
     setLoading(true);
     setError(null);
     setResolvedTitle("");
+    setLanguages(null);
     setHasMore(false);
     setNextOffset(0);
     const params = kind === "shelf" ? { shelfId: id } : { selectedItemID: id };
@@ -51,6 +54,7 @@ const BookListPage = ({ kind }) => {
         if (cancelled) return;
         setBooks(res?.titlesList ?? []);
         setResolvedTitle(res?.title ?? "");
+        setLanguages(res?.languages ?? null);
         if (kind === "shelf") {
           setHasMore(Boolean(res?.hasMore));
           setNextOffset(Number(res?.nextOffset ?? (res?.titlesList?.length ?? 0)));
@@ -61,7 +65,7 @@ const BookListPage = ({ kind }) => {
     return () => {
       cancelled = true;
     };
-  }, [id, kind]);
+  }, [id, kind, filterLang]);
 
   const sortedBooks =
     kind === "series"
@@ -111,6 +115,8 @@ const BookListPage = ({ kind }) => {
           </p>
         )}
       </header>
+
+      <LangFilter languages={languages ?? config?.languages} value={filterLang} onChange={onFilterLang} />
 
       {loading && <div className="booklist-page__loader">{t("loading")}</div>}
 

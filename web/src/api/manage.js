@@ -37,6 +37,22 @@ export const uploadBooks = (files, { force = false } = {}) => {
 export const deleteBook = (id) => post(`admin/books/${id}/delete`);
 export const restoreBook = (id) => post(`admin/books/${id}/restore`);
 
+export const updateBook = async (id, body) => {
+  const res = await fetch(api.buildUrl(`admin/books/${id}`), {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", "X-Polka-Lang": getLang() },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    const err = new Error(text || `Request failed: ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+};
+
 export const importInpx = ({ file, path, replace } = {}) => {
   const fd = new FormData();
   if (file) fd.append("file", file);

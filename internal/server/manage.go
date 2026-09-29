@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -288,6 +289,50 @@ func (s *Server) handleBookSetDeleted(deleted bool) http.HandlerFunc {
 		s.log.Info("book visibility changed", "id", id, "deleted", deleted)
 		writeJSON(w, map[string]any{"ok": true})
 	}
+}
+
+// POST /admin/books/{id} — update catalog metadata (title, authors, …).
+func (s *Server) handleBookUpdate(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	var req struct {
+		Title   string `json:"title"`
+		Authors []struct {
+			Last   string `json:"last"`
+			First  string `json:"first"`
+			Middle string `json:"middle"`
+		} `json:"authors"`
+		Series    string   `json:"series"`
+		SeriesNum int      `json:"seriesNum"`
+		Year      int      `json:"year"`
+		Lang      string   `json:"lang"`
+		Genres    []string `json:"genres"`
+		ISBN      string   `json:"isbn"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	upd := store.BookUpdate{
+		Title: req.Title, Series: req.Series, SeriesNum: req.SeriesNum,
+		Year: req.Year, Lang: req.Lang, Genres: req.Genres, ISBN: req.ISBN,
+	}
+	for _, a := range req.Authors {
+		upd.Authors = append(upd.Authors, store.AuthorName{Last: a.Last, First: a.First, Middle: a.Middle})
+	}
+	if err := s.st.UpdateBook(r.Context(), id, upd); err != nil {
+		if strings.Contains(err.Error(), "title is required") {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		s.apiError(w, err)
+		return
+	}
+	s.log.Info("book metadata updated", "id", id, "title", req.Title)
+	writeJSON(w, map[string]any{"ok": true})
 }
 
 // --- Bulk export ---

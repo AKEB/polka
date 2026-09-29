@@ -87,4 +87,12 @@ func TestSearchByISBNAndGenres(t *testing.T) {
 	if len(shelf["titlesList"].([]any)) != 1 {
 		t.Errorf("genre shelf = %v", shelf["titlesList"])
 	}
+	langs, _ := shelf["languages"].([]any)
+	if len(langs) != 1 {
+		t.Fatalf("genre languages = %v", shelf["languages"])
+	}
+	lang := langs[0].(map[string]any)
+	if lang["code"] != "ru" || lang["books"].(float64) != 1 {
+		t.Errorf("genre language chip = %v", lang)
+	}
 }

@@ -2,6 +2,7 @@ import { t } from "../i18n";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Shelf from "../components/Shelf";
+import LangFilter from "../components/LangFilter";
 import { fetchHomeShelves } from "../api/fetchBooks";
 import "./HomePage.css";
 
@@ -16,7 +17,7 @@ const SHELF_TITLES = () => ({
   well_curated: { title: t("shelf.well_curated"), subtitle: t("shelf.well_curated.sub") },
 });
 
-const HomePage = ({ config }) => {
+const HomePage = ({ config, filterLang, onFilterLang }) => {
   const navigate = useNavigate();
   const [shelves, setShelves] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -40,7 +41,7 @@ const HomePage = ({ config }) => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [filterLang]);
 
   return (
     <div className="container homepage">
@@ -74,6 +75,8 @@ const HomePage = ({ config }) => {
           <img className="hero__deco-img" src="/hero-books.png" alt="" />
         </div>
       </section>
+
+      <LangFilter languages={config?.languages} value={filterLang} onChange={onFilterLang} />
 
       {loading && (
         <div className="homepage__loading">

@@ -6,6 +6,7 @@ import RatingStars from "../components/RatingStars";
 import RateStars from "../components/RateStars";
 import { fetchBookForm, fetchExternalEnrichment, fetchSimilarBooks } from "../api/fetchBooks";
 import Shelf from "../components/Shelf";
+import BookEditForm from "../components/BookEditForm";
 import { deleteBook } from "../api/manage";
 import { fetchProgress } from "../api/reader";
 import { rateBook } from "../api/ratings";
@@ -78,6 +79,7 @@ const BookPage = ({ user, sync }) => {
   const [listIds, setListIds] = useState([]);
   const [wishlistId, setWishlistId] = useState(null);
   const [wishBusy, setWishBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const inWishlist = wishlistId !== null && listIds.includes(wishlistId);
 
@@ -174,6 +176,7 @@ const BookPage = ({ user, sync }) => {
     setError(null);
     setCoverFailed(false);
     setEnrichment(null);
+    setEditing(false);
     fetchBookForm({ selectedItemID: bookId })
       .then((res) => {
         if (cancelled) return;
@@ -270,7 +273,17 @@ const BookPage = ({ user, sync }) => {
   }
 
   const { bookForm, annotation, publisher, city, year, isbn } = data;
-  const { BookID, Title, LibRate, BookSize, Genres, Ext, FileName } = bookForm;
+  const { BookID, Title, LibRate, BookSize, Genres, Ext, FileName, LangName } = bookForm;
+  const shownYear = bookForm.Year || year;
+  const shownIsbn = bookForm.ISBN || isbn;
+
+  const reloadBook = () =>
+    fetchBookForm({ selectedItemID: bookId })
+      .then((res) => {
+        setData(res ?? null);
+        setEditing(false);
+      })
+      .catch(() => alert(t("book.edit.fail")));
 
   const initials = (Title || "").trim().slice(0, 2).toUpperCase();
 
@@ -491,11 +504,20 @@ const BookPage = ({ user, sync }) => {
               </a>
             )}
             {user?.role === "admin" && (
-              <button type="button" className="btn btn-ghost book-page__delete" onClick={removeBook}>
-                {t("book.delete")}
-              </button>
+              <>
+                <button type="button" className="btn btn-ghost" onClick={() => setEditing((v) => !v)}>
+                  {editing ? t("book.edit.cancel") : t("book.edit")}
+                </button>
+                <button type="button" className="btn btn-ghost book-page__delete" onClick={removeBook}>
+                  {t("book.delete")}
+                </button>
+              </>
             )}
           </div>
+
+          {editing && user?.role === "admin" && (
+            <BookEditForm data={data} onSaved={reloadBook} onCancel={() => setEditing(false)} />
+          )}
 
           {annotation && (
             <article className="book-page__annotation">
@@ -511,16 +533,22 @@ const BookPage = ({ user, sync }) => {
                 <dd>{publisher}</dd>
               </>
             )}
-            {(city || year) && (
+            {(city || shownYear) && (
               <>
                 <dt>{t("book.published")}</dt>
-                <dd>{[city, year].filter(Boolean).join(", ")}</dd>
+                <dd>{[city, shownYear].filter(Boolean).join(", ")}</dd>
               </>
             )}
-            {isbn && (
+            {shownIsbn && (
               <>
                 <dt>ISBN</dt>
-                <dd>{isbn}</dd>
+                <dd>{shownIsbn}</dd>
+              </>
+            )}
+            {LangName && (
+              <>
+                <dt>{t("book.lang")}</dt>
+                <dd>{LangName}</dd>
               </>
             )}
             {BookSize > 0 && (

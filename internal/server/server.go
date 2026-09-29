@@ -16,6 +16,7 @@ import (
 	"github.com/vestigiumincaligne/polka/internal/collections"
 	"github.com/vestigiumincaligne/polka/internal/config"
 	"github.com/vestigiumincaligne/polka/internal/enrich"
+	"github.com/vestigiumincaligne/polka/internal/langs"
 	"github.com/vestigiumincaligne/polka/internal/library"
 	"github.com/vestigiumincaligne/polka/internal/store"
 	"github.com/vestigiumincaligne/polka/internal/syncer"
@@ -110,6 +111,7 @@ func New(cfg *config.Config, log *slog.Logger, st *store.Store, lib *library.Lib
 		s.registerSyncRoutes(mux)
 		for _, p := range []string{
 			"POST /admin/books/upload",
+			"POST /admin/books/{id}",
 			"POST /admin/books/{id}/delete",
 			"POST /admin/books/{id}/restore",
 			"POST /admin/import/inpx",
@@ -129,6 +131,7 @@ func New(cfg *config.Config, log *slog.Logger, st *store.Store, lib *library.Lib
 		// Library management (administrator only; absent in demo mode)
 		if !s.demoMode() {
 			mux.HandleFunc("POST /admin/books/upload", s.adminOnly(s.handleBookUpload))
+			mux.HandleFunc("POST /admin/books/{id}", s.adminOnly(s.handleBookUpdate))
 			mux.HandleFunc("POST /admin/books/{id}/delete", s.adminOnly(s.handleBookSetDeleted(true)))
 			mux.HandleFunc("POST /admin/books/{id}/restore", s.adminOnly(s.handleBookSetDeleted(false)))
 			mux.HandleFunc("POST /admin/import/inpx", s.adminOnly(s.handleImportInpx))
@@ -161,6 +164,8 @@ func New(cfg *config.Config, log *slog.Logger, st *store.Store, lib *library.Lib
 		mux.HandleFunc("GET /opds/series/{letter}", s.opdsAuth(s.handleOpdsSeriesLetter))
 		mux.HandleFunc("GET /opds/series/id/{id}", s.opdsAuth(s.handleOpdsSeriesOne))
 		mux.HandleFunc("GET /opds/genre/{code}", s.opdsAuth(s.handleOpdsGenre))
+		mux.HandleFunc("GET /opds/languages", s.opdsAuth(s.handleOpdsLanguages))
+		mux.HandleFunc("GET /opds/language/{code}", s.opdsAuth(s.handleOpdsLanguage))
 		mux.HandleFunc("GET /opds/search", s.opdsAuth(s.handleOpdsSearch))
 		mux.HandleFunc("GET /opds/reading", s.opdsAuth(s.handleOpdsReading))
 
@@ -264,7 +269,27 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"collectionName": s.st.GetMeta(r.Context(), "collection_name", "Полка"),
 		"numberOfBooks":  count,
+		"languages":      s.languageList(r),
 	})
+}
+
+func (s *Server) languageList(r *http.Request) []map[string]any {
+	list, err := s.st.Languages(r.Context())
+	if err != nil {
+		return []map[string]any{}
+	}
+	return s.languageMaps(r, list)
+}
+
+func (s *Server) languageMaps(r *http.Request, list []store.LangCount) []map[string]any {
+	ui := reqLang(r)
+	out := make([]map[string]any, 0, len(list))
+	for _, l := range list {
+		out = append(out, map[string]any{
+			"code": l.Code, "name": langs.Name(l.Code, ui), "books": l.Books,
+		})
+	}
+	return out
 }
 
 func init() {

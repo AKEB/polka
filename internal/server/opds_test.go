@@ -114,7 +114,7 @@ func TestOpdsCatalog(t *testing.T) {
 
 	// Корень: навигация
 	root := get("/opds")
-	for _, want := range []string{"<feed", "Новинки", "/opds/new", "/opds/genres", "Читаю сейчас"} {
+	for _, want := range []string{"<feed", "Новинки", "/opds/new", "/opds/genres", "/opds/languages", "Читаю сейчас"} {
 		if !strings.Contains(root, want) {
 			t.Errorf("root feed missing %q", want)
 		}

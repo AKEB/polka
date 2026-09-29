@@ -2,6 +2,7 @@ import { t } from "../i18n";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import BookCard from "../components/BookCard";
+import LangFilter from "../components/LangFilter";
 import Shelf from "../components/Shelf";
 import {
   fetchCatalogShelves,
@@ -20,7 +21,7 @@ const SCOPES = () => [
   { id: "genres", label: t("scope.genres"), statKey: "genres" },
 ];
 
-const SearchPage = ({ config }) => {
+const SearchPage = ({ config, filterLang, onFilterLang }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -63,7 +64,7 @@ const SearchPage = ({ config }) => {
     return () => {
       cancelled = true;
     };
-  }, [query, scope, groupId, enabled]);
+  }, [query, scope, groupId, enabled, filterLang]);
 
   // Catalog with no query and no group — show random shelves by genre.
   const [catalogShelves, setCatalogShelves] = useState([]);
@@ -80,7 +81,7 @@ const SearchPage = ({ config }) => {
     return () => {
       cancelled = true;
     };
-  }, [enabled]);
+  }, [enabled, filterLang]);
 
   const setScope = (next) => {
     const params = new URLSearchParams(searchParams);
@@ -142,6 +143,8 @@ const SearchPage = ({ config }) => {
           ))}
         </div>
       ) : null}
+
+      <LangFilter languages={config?.languages} value={filterLang} onChange={onFilterLang} />
 
       {!enabled && (
         <div className="search-page__catalog">

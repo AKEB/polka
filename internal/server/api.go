@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/vestigiumincaligne/polka/internal/genres"
+	"github.com/vestigiumincaligne/polka/internal/langs"
 	"github.com/vestigiumincaligne/polka/internal/library"
 	"github.com/vestigiumincaligne/polka/internal/store"
 )
@@ -24,6 +25,7 @@ func bookJSON(b store.Book) map[string]any {
 		"SeqNumber":    b.SeqNumber,
 		"Year":         b.Year,
 		"LibRate":      b.LibRate,
+		"Lang":         b.Lang,
 	}
 }
 
@@ -80,9 +82,13 @@ func (s *Server) apiError(w http.ResponseWriter, err error) {
 
 // --- main/getBooks/* ---
 
+func bookLang(r *http.Request) string {
+	return store.NormalizeLang(r.URL.Query().Get("lang"))
+}
+
 func (s *Server) handleGetHomeShelves(w http.ResponseWriter, r *http.Request) {
 	limit := intParam(r, "limit", 12)
-	shelves, err := s.st.HomeShelves(r.Context(), limit)
+	shelves, err := s.st.HomeShelves(store.WithLang(r.Context(), bookLang(r)), limit)
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -164,7 +170,7 @@ func (s *Server) readingShelf(r *http.Request, userID int64, limit int) []map[st
 }
 
 func (s *Server) handleGetCatalogShelves(w http.ResponseWriter, r *http.Request) {
-	shelves, err := s.st.CatalogShelves(r.Context(), intParam(r, "count", 6), intParam(r, "limit", 12))
+	shelves, err := s.st.CatalogShelves(store.WithLang(r.Context(), bookLang(r)), intParam(r, "count", 6), intParam(r, "limit", 12))
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -186,10 +192,11 @@ func (s *Server) handleGetShelfBooks(w http.ResponseWriter, r *http.Request) {
 	var books []store.Book
 	var title string
 	var err error
+	ctx := store.WithLang(r.Context(), bookLang(r))
 	if slug, ok := strings.CutPrefix(shelfID, collectionShelfPrefix); ok {
-		books, title, err = s.collectionShelfBooks(r.Context(), slug, limit+1, offset)
+		books, title, err = s.collectionShelfBooks(ctx, slug, limit+1, offset)
 	} else {
-		books, title, err = s.st.ShelfBooks(r.Context(), shelfID, limit+1, offset)
+		books, title, err = s.st.ShelfBooks(ctx, shelfID, limit+1, offset)
 	}
 	if err != nil {
 		s.apiError(w, err)
@@ -207,7 +214,34 @@ func (s *Server) handleGetShelfBooks(w http.ResponseWriter, r *http.Request) {
 		"title":      title,
 		"hasMore":    hasMore,
 		"nextOffset": offset + len(books),
+		"languages":  s.shelfLanguages(r, shelfID),
 	})
+}
+
+func (s *Server) shelfLanguages(r *http.Request, shelfID string) []map[string]any {
+	if slug, ok := strings.CutPrefix(shelfID, collectionShelfPrefix); ok {
+		if s.cols == nil {
+			return []map[string]any{}
+		}
+		c, err := s.cols.Get(r.Context(), slug)
+		if err != nil {
+			return []map[string]any{}
+		}
+		ids, err := s.cols.BookIDs(r.Context(), c.ID, 10000, 0)
+		if err != nil {
+			return []map[string]any{}
+		}
+		list, err := s.st.LanguagesForIDs(r.Context(), ids)
+		if err != nil {
+			return []map[string]any{}
+		}
+		return s.languageMaps(r, list)
+	}
+	list, err := s.st.LanguagesForShelf(r.Context(), shelfID)
+	if err != nil {
+		return []map[string]any{}
+	}
+	return s.languageMaps(r, list)
 }
 
 // GET /main/getBooks/getBooksByIds?ids=1,2,3 — book cards by id
@@ -239,7 +273,7 @@ func (s *Server) handleGetSearchStats(w http.ResponseWriter, r *http.Request) {
 		}})
 		return
 	}
-	stats, err := s.st.SearchStats(r.Context(), query)
+	stats, err := s.st.SearchStats(store.WithLang(r.Context(), bookLang(r)), query)
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -258,7 +292,7 @@ func (s *Server) handleGetSearchTitles(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"titlesList": booksJSON(s.isbnBooks(r, query))})
 		return
 	}
-	books, err := s.st.SearchTitles(r.Context(), query, 250)
+	books, err := s.st.SearchTitles(store.WithLang(r.Context(), bookLang(r)), query, 250)
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -267,7 +301,7 @@ func (s *Server) handleGetSearchTitles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetSearchAuthors(w http.ResponseWriter, r *http.Request) {
-	authors, err := s.st.SearchAuthors(r.Context(), searchParam(r), 250)
+	authors, err := s.st.SearchAuthors(store.WithLang(r.Context(), bookLang(r)), searchParam(r), 250)
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -280,7 +314,7 @@ func (s *Server) handleGetSearchAuthors(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleGetSearchSeries(w http.ResponseWriter, r *http.Request) {
-	series, err := s.st.SearchSeries(r.Context(), searchParam(r), 250)
+	series, err := s.st.SearchSeries(store.WithLang(r.Context(), bookLang(r)), searchParam(r), 250)
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -298,12 +332,17 @@ func (s *Server) handleGetAuthorBooks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "selectedItemID required", http.StatusBadRequest)
 		return
 	}
-	books, name, err := s.st.AuthorBooks(r.Context(), id)
+	books, name, err := s.st.AuthorBooks(store.WithLang(r.Context(), bookLang(r)), id)
 	if err != nil {
 		s.apiError(w, err)
 		return
 	}
-	writeJSON(w, map[string]any{"titlesList": booksJSON(books), "title": name})
+	langs, err := s.st.LanguagesForAuthor(r.Context(), id)
+	if err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"titlesList": booksJSON(books), "title": name, "languages": s.languageMaps(r, langs)})
 }
 
 func (s *Server) handleGetSeriesBooks(w http.ResponseWriter, r *http.Request) {
@@ -312,12 +351,17 @@ func (s *Server) handleGetSeriesBooks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "selectedItemID required", http.StatusBadRequest)
 		return
 	}
-	books, title, err := s.st.SeriesBooks(r.Context(), id)
+	books, title, err := s.st.SeriesBooks(store.WithLang(r.Context(), bookLang(r)), id)
 	if err != nil {
 		s.apiError(w, err)
 		return
 	}
-	writeJSON(w, map[string]any{"titlesList": booksJSON(books), "title": title})
+	langs, err := s.st.LanguagesForSeries(r.Context(), id)
+	if err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"titlesList": booksJSON(books), "title": title, "languages": s.languageMaps(r, langs)})
 }
 
 func (s *Server) handleGetBookForm(w http.ResponseWriter, r *http.Request) {
@@ -364,6 +408,10 @@ func (s *Server) handleGetBookForm(w http.ResponseWriter, r *http.Request) {
 			"Genres":       strings.Join(genreNames, ", "),
 			"Ext":          "." + d.Ext,
 			"FileName":     d.File,
+			"Lang":         d.Lang,
+			"LangName":     langs.Name(d.Lang, reqLang(r)),
+			"Year":         d.Year,
+			"ISBN":         d.ISBN,
 		},
 		"authors":    authors,
 		"genresList": genreList,
@@ -379,6 +427,15 @@ func (s *Server) handleGetBookForm(w http.ResponseWriter, r *http.Request) {
 		resp["userRating"] = s.users.UserRating(r.Context(), u.ID, d.ID)
 		if listIDs, err := s.users.BookListIDs(r.Context(), u.ID, d.ID); err == nil {
 			resp["bookListIds"] = listIDs
+		}
+		if u.IsAdmin() {
+			cat := genres.All(reqLang(r))
+			list := make([]map[string]any, 0, len(cat))
+			for _, g := range cat {
+				list = append(list, map[string]any{"code": g.Code, "name": g.Name})
+			}
+			resp["genreCatalog"] = list
+			resp["languages"] = s.languageList(r)
 		}
 	}
 

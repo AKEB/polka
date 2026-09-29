@@ -18,6 +18,7 @@ type genreCache struct {
 	mu      sync.Mutex
 	counts  []store.GenreCount
 	fetched time.Time
+	lang    string
 }
 
 type genreEntry struct {
@@ -29,19 +30,21 @@ type genreEntry struct {
 const genreCacheTTL = 5 * time.Minute
 
 func (s *Server) genreList(r *http.Request) []genreEntry {
-	lang := reqLang(r)
+	ui := reqLang(r)
+	filter := bookLang(r)
 	s.genres.mu.Lock()
 	defer s.genres.mu.Unlock()
-	if time.Since(s.genres.fetched) >= genreCacheTTL || s.genres.counts == nil {
-		if counts, err := s.st.GenresWithCounts(r.Context()); err == nil {
+	if time.Since(s.genres.fetched) >= genreCacheTTL || s.genres.counts == nil || s.genres.lang != filter {
+		if counts, err := s.st.GenresWithCounts(store.WithLang(r.Context(), filter)); err == nil {
 			s.genres.counts = counts
 			s.genres.fetched = time.Now()
+			s.genres.lang = filter
 		}
 	}
 	// Only counters are cached; names are localized on the fly.
 	list := make([]genreEntry, 0, len(s.genres.counts))
 	for _, g := range s.genres.counts {
-		list = append(list, genreEntry{Code: g.Code, Name: genres.NameLang(g.Code, lang), Books: g.Books})
+		list = append(list, genreEntry{Code: g.Code, Name: genres.NameLang(g.Code, ui), Books: g.Books})
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Books > list[j].Books })
 	return list
@@ -77,7 +80,8 @@ func (s *Server) handleGetSearchGenres(w http.ResponseWriter, r *http.Request) {
 // isbnBooks — ISBN search: the local column first, then external title
 // resolution followed by a collection search.
 func (s *Server) isbnBooks(r *http.Request, query string) []store.Book {
-	books, err := s.st.SearchByISBN(r.Context(), query)
+	ctx := store.WithLang(r.Context(), bookLang(r))
+	books, err := s.st.SearchByISBN(ctx, query)
 	if err == nil && len(books) > 0 {
 		return books
 	}
@@ -89,7 +93,7 @@ func (s *Server) isbnBooks(r *http.Request, query string) []store.Book {
 		return []store.Book{*b}
 	}
 	// Resolution succeeded but there is no exact match — show close title matches.
-	if loose, err := s.st.SearchTitles(r.Context(), info.Title, 10); err == nil {
+	if loose, err := s.st.SearchTitles(ctx, info.Title, 10); err == nil {
 		return loose
 	}
 	return nil

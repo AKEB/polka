@@ -160,6 +160,32 @@ func TestUploadDeleteExport(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Errorf("restored book form -> %d", resp.StatusCode)
 	}
+
+	// Metadata edit
+	resp = postJSON(t, client, ts.URL+"/admin/books/"+itoa64(bookID), map[string]any{
+		"title":   "War and Peace",
+		"authors": []map[string]string{{"last": "Tolstoy", "first": "Leo"}},
+		"series":  "Classics", "seriesNum": 1,
+		"year": 1869, "lang": "en", "genres": []string{"prose_classic"},
+		"isbn": "978-0-14-044793-4",
+	})
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Errorf("update -> %d", resp.StatusCode)
+	}
+	form := getJSONWith(t, client, ts.URL+"/main/getBooks/getBookForm?selectedItemID="+itoa64(bookID))
+	bf := form["bookForm"].(map[string]any)
+	if bf["Title"] != "War and Peace" || bf["Lang"] != "en" {
+		t.Errorf("updated form: %v", bf)
+	}
+	en := getJSONWith(t, client, ts.URL+"/main/getBooks/getSearchTitles?search=War&lang=en")
+	if list := en["titlesList"].([]any); len(list) != 1 {
+		t.Errorf("lang=en search: %v", en)
+	}
+	ru := getJSONWith(t, client, ts.URL+"/main/getBooks/getSearchTitles?search=War&lang=ru")
+	if list := ru["titlesList"].([]any); len(list) != 0 {
+		t.Errorf("lang=ru should hide the english book: %v", ru)
+	}
 }
 
 func TestWebImportInpx(t *testing.T) {

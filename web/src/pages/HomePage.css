@@ -6,6 +6,10 @@
   gap: 56px;
 }
 
+.homepage > .lang-filter {
+  margin-top: -32px;
+}
+
 .hero {
   position: relative;
   background: var(--bg-card);

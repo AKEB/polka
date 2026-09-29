@@ -1,0 +1,38 @@
+.lang-filter {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lang-filter__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.lang-filter__chip:hover {
+  border-color: var(--border-strong);
+}
+
+.lang-filter__chip.is-active {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+
+.lang-filter__count {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.lang-filter__chip.is-active .lang-filter__count {
+  background: rgba(255, 255, 255, 0.18);
+}

@@ -1,6 +1,8 @@
 // Package genres provides localized names for standard FB2 genre codes.
 package genres
 
+import "sort"
+
 // Name returns the Russian genre name for an FB2 code;
 // unknown codes are returned as is.
 func Name(code string) string {
@@ -19,6 +21,22 @@ func NameLang(code, lang string) string {
 		return code
 	}
 	return Name(code)
+}
+
+// Entry is a genre code with a localized name.
+type Entry struct {
+	Code string
+	Name string
+}
+
+// All returns every known FB2 genre, sorted by localized name.
+func All(lang string) []Entry {
+	out := make([]Entry, 0, len(names))
+	for code := range names {
+		out = append(out, Entry{Code: code, Name: NameLang(code, lang)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 var names = map[string]string{

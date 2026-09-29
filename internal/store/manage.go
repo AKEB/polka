@@ -134,6 +134,130 @@ func (s *Store) AddBook(ctx context.Context, b *BookInput) (int64, error) {
 	return bookID, tx.Commit()
 }
 
+// BookUpdate is the catalog fields an administrator can change.
+type BookUpdate struct {
+	Title     string
+	Authors   []AuthorName
+	Series    string
+	SeriesNum int
+	Year      int
+	Lang      string
+	Genres    []string
+	ISBN      string
+}
+
+// UpdateBook replaces a book's catalog metadata and rebuilds its FTS row.
+func (s *Store) UpdateBook(ctx context.Context, bookID int64, u BookUpdate) error {
+	u.Title = strings.TrimSpace(u.Title)
+	if u.Title == "" {
+		return fmt.Errorf("title is required")
+	}
+	u.Series = strings.TrimSpace(u.Series)
+	u.Lang = NormalizeLang(u.Lang)
+	if u.Lang == LangUnknown {
+		u.Lang = ""
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var exists int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM books WHERE id = ? AND deleted = 0`, bookID).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	var seriesID any
+	if u.Series != "" {
+		id, err := lookupOrInsert(ctx, tx,
+			`SELECT id FROM series WHERE title = ?`, `INSERT INTO series (title) VALUES (?)`,
+			func(id int64) error {
+				_, err := tx.ExecContext(ctx, `INSERT INTO series_search (rowid, title) VALUES (?, ?)`, id, u.Series)
+				return err
+			}, u.Series)
+		if err != nil {
+			return err
+		}
+		seriesID = id
+	}
+	var seriesNum any
+	if u.SeriesNum > 0 {
+		seriesNum = u.SeriesNum
+	}
+	var year any
+	if u.Year > 0 {
+		year = u.Year
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE books SET title = ?, series_id = ?, series_num = ?, year = ?, lang = ?, isbn = ?
+		WHERE id = ?`,
+		u.Title, seriesID, seriesNum, year, u.Lang, NormalizeISBN(u.ISBN), bookID); err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM book_authors WHERE book_id = ?`, bookID); err != nil {
+		return err
+	}
+	var authorNames []string
+	for _, a := range u.Authors {
+		a.Last, a.First, a.Middle = strings.TrimSpace(a.Last), strings.TrimSpace(a.First), strings.TrimSpace(a.Middle)
+		if a.Last == "" && a.First == "" && a.Middle == "" {
+			continue
+		}
+		name := strings.TrimSpace(a.Last + " " + a.First + " " + a.Middle)
+		authorNames = append(authorNames, name)
+		id, err := lookupOrInsert(ctx, tx,
+			`SELECT id FROM authors WHERE last_name = ? AND first_name = ? AND middle_name = ?`,
+			`INSERT INTO authors (last_name, first_name, middle_name) VALUES (?, ?, ?)`,
+			func(id int64) error {
+				_, err := tx.ExecContext(ctx, `INSERT INTO authors_search (rowid, name) VALUES (?, ?)`, id, name)
+				return err
+			}, a.Last, a.First, a.Middle)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO book_authors (book_id, author_id) VALUES (?, ?)`, bookID, id); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM book_genres WHERE book_id = ?`, bookID); err != nil {
+		return err
+	}
+	for _, g := range u.Genres {
+		g = strings.ToLower(strings.TrimSpace(g))
+		if g == "" {
+			continue
+		}
+		id, err := lookupOrInsert(ctx, tx,
+			`SELECT id FROM genres WHERE code = ?`, `INSERT INTO genres (code) VALUES (?)`, nil, g)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO book_genres (book_id, genre_id) VALUES (?, ?)`, bookID, id); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM book_search WHERE rowid = ?`, bookID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO book_search (rowid, title, authors, series) VALUES (?, ?, ?, ?)`,
+		bookID, u.Title, strings.Join(authorNames, " "), u.Series); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // SetBookDeleted hides or restores a book, keeping the FTS index in sync.
 func (s *Store) SetBookDeleted(ctx context.Context, bookID int64, deleted bool) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE books SET deleted = ? WHERE id = ?`, boolToInt(deleted), bookID)

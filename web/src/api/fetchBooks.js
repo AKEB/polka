@@ -1,3 +1,4 @@
+import { getFilterLang } from "../filters";
 import api from "./api";
 
 const buildQuery = (params) => {
@@ -10,7 +11,16 @@ const buildQuery = (params) => {
   return qs ? `?${qs}` : "";
 };
 
-const get = (endpoint, params = {}) => api.getJson(`main/getBooks/${endpoint}${buildQuery(params)}`);
+const get = (endpoint, params = {}) => {
+  const next = { ...params };
+  if (next.lang === undefined) {
+    const lang = getFilterLang();
+    if (lang) next.lang = lang;
+  } else if (next.lang === "") {
+    delete next.lang;
+  }
+  return api.getJson(`main/getBooks/${endpoint}${buildQuery(next)}`);
+};
 
 export const fetchConfig = () => get("getConfig");
 

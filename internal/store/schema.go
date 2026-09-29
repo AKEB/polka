@@ -1,7 +1,12 @@
 package store
 
 // The schema version is stored in PRAGMA user_version.
-const schemaVersion = 4
+const schemaVersion = 5
+
+// v5: language filter on catalog listings (lang is already on books).
+const schemaV5 = `
+CREATE INDEX IF NOT EXISTS idx_books_lang ON books (lang, id) WHERE deleted = 0;
+`
 
 // v4: KOReader partial-MD5 digests of served book files — the bridge
 // between kosync documents and catalog books. Recomputed lazily (on
@@ -142,4 +147,5 @@ var schemaIndexes = []string{
 	`CREATE INDEX IF NOT EXISTS idx_books_file_hash ON books (file_hash) WHERE file_hash != ''`,
 	`CREATE INDEX IF NOT EXISTS idx_books_content_hash ON books (content_hash) WHERE content_hash != ''`,
 	`CREATE INDEX IF NOT EXISTS idx_books_isbn ON books (isbn) WHERE isbn != ''`,
+	`CREATE INDEX IF NOT EXISTS idx_books_lang ON books (lang, id) WHERE deleted = 0`,
 }

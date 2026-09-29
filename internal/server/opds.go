@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vestigiumincaligne/polka/internal/genres"
+	"github.com/vestigiumincaligne/polka/internal/langs"
 	"github.com/vestigiumincaligne/polka/internal/store"
 )
 
@@ -234,6 +235,7 @@ func (s *Server) handleOpdsRoot(w http.ResponseWriter, r *http.Request) {
 		{"authors", tr(lang, "opds.authors"), tr(lang, "opds.authors.sub"), "/opds/authors", opdsNavType},
 		{"series", tr(lang, "opds.series"), tr(lang, "opds.series.sub"), "/opds/series", opdsNavType},
 		{"genres", tr(lang, "opds.genres"), tr(lang, "opds.genres.sub"), "/opds/genres", opdsNavType},
+		{"languages", tr(lang, "opds.languages"), tr(lang, "opds.languages.sub"), "/opds/languages", opdsNavType},
 	}
 	if s.currentUser(r) != nil {
 		entries = append(entries, struct {
@@ -279,7 +281,7 @@ func (s *Server) handleOpdsOpenSearch(w http.ResponseWriter, r *http.Request) {
 // GET /opds/new — new arrivals with pagination.
 func (s *Server) handleOpdsNew(w http.ResponseWriter, r *http.Request) {
 	page := opdsPage(r)
-	books, _, err := s.st.ShelfBooks(r.Context(), "newest", opdsPageSize+1, page*opdsPageSize)
+	books, _, err := s.st.ShelfBooks(store.WithLang(r.Context(), bookLang(r)), "newest", opdsPageSize+1, page*opdsPageSize)
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -293,7 +295,7 @@ func (s *Server) handleOpdsNew(w http.ResponseWriter, r *http.Request) {
 
 // GET /opds/genres — genre navigation.
 func (s *Server) handleOpdsGenres(w http.ResponseWriter, r *http.Request) {
-	list, err := s.st.GenresWithCounts(r.Context())
+	list, err := s.st.GenresWithCounts(store.WithLang(r.Context(), bookLang(r)))
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -335,7 +337,7 @@ func (s *Server) handleOpdsGenres(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleOpdsGenre(w http.ResponseWriter, r *http.Request) {
 	code := r.PathValue("code")
 	page := opdsPage(r)
-	books, _, err := s.st.ShelfBooks(r.Context(), "genre_"+code, opdsPageSize+1, page*opdsPageSize)
+	books, _, err := s.st.ShelfBooks(store.WithLang(r.Context(), bookLang(r)), "genre_"+code, opdsPageSize+1, page*opdsPageSize)
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -351,7 +353,7 @@ func (s *Server) handleOpdsGenre(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleOpdsSearch(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(strings.ReplaceAll(r.URL.Query().Get("q"), "+", " "))
 	page := opdsPage(r)
-	books, err := s.st.SearchBooks(r.Context(), query, opdsPageSize+1, page*opdsPageSize)
+	books, err := s.st.SearchBooks(store.WithLang(r.Context(), bookLang(r)), query, opdsPageSize+1, page*opdsPageSize)
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -481,7 +483,7 @@ func (s *Server) handleOpdsAuthor(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	books, name, err := s.st.AuthorBooks(r.Context(), id)
+	books, name, err := s.st.AuthorBooks(store.WithLang(r.Context(), bookLang(r)), id)
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -534,10 +536,54 @@ func (s *Server) handleOpdsSeriesOne(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	books, title, err := s.st.SeriesBooks(r.Context(), id)
+	books, title, err := s.st.SeriesBooks(store.WithLang(r.Context(), bookLang(r)), id)
 	if err != nil {
 		s.apiError(w, err)
 		return
 	}
 	s.writeFeed(w, s.acquisitionFeed(fmt.Sprintf("urn:polka:seriesbooks:%d", id), title, fmt.Sprintf("/opds/series/id/%d", id), 0, books, false))
+}
+
+// GET /opds/languages — language navigation.
+func (s *Server) handleOpdsLanguages(w http.ResponseWriter, r *http.Request) {
+	list, err := s.st.Languages(r.Context())
+	if err != nil {
+		s.apiError(w, err)
+		return
+	}
+	ui := reqLang(r)
+	now := time.Now().UTC().Format(time.RFC3339)
+	feed := &opdsFeed{ID: "urn:polka:languages", Title: tr(ui, "opds.languages")}
+	feed.Links = append(feed.Links, opdsLink{Rel: "self", Href: "/opds/languages", Type: opdsNavType})
+	for _, l := range list {
+		feed.Entries = append(feed.Entries, opdsEntry{
+			Title:   langs.Name(l.Code, ui),
+			ID:      "urn:polka:lang:" + l.Code,
+			Updated: now,
+			Content: &opdsContent{Type: "text", Text: tr(ui, "opds.books", l.Books)},
+			Links:   []opdsLink{{Href: "/opds/language/" + url.PathEscape(l.Code), Type: opdsAcqType}},
+		})
+	}
+	s.writeFeed(w, feed)
+}
+
+// GET /opds/language/{code} — newest books in a language.
+func (s *Server) handleOpdsLanguage(w http.ResponseWriter, r *http.Request) {
+	code := store.NormalizeLang(r.PathValue("code"))
+	if code == "" {
+		http.NotFound(w, r)
+		return
+	}
+	page := opdsPage(r)
+	books, _, err := s.st.ShelfBooks(store.WithLang(r.Context(), code), "newest", opdsPageSize+1, page*opdsPageSize)
+	if err != nil {
+		s.apiError(w, err)
+		return
+	}
+	hasMore := len(books) > opdsPageSize
+	if hasMore {
+		books = books[:opdsPageSize]
+	}
+	ui := reqLang(r)
+	s.writeFeed(w, s.acquisitionFeed("urn:polka:lang:"+code, langs.Name(code, ui), "/opds/language/"+url.PathEscape(code), page, books, hasMore))
 }
