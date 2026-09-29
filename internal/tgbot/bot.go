@@ -412,9 +412,11 @@ func (b *Bot) formatResults(fromID int64, sid string, page int, books []store.Bo
 	start := page * pageSize
 	for i, bk := range books {
 		n := start + i + 1
-		sb.WriteString(fmt.Sprintf("\n<b>%d.</b> 📚 %s <i>(%s)</i>\n", n, html.EscapeString(bk.Title), html.EscapeString(langLabel(bk.Lang))))
+		title := escapeTG(clipRunes(bk.Title, 180))
+		lang := escapeTG(langLabel(bk.Lang))
+		sb.WriteString(fmt.Sprintf("\n<b>%d.</b> 📚 %s (%s)\n", n, title, lang))
 		if bk.AuthorNames != "" {
-			sb.WriteString("✍️ " + html.EscapeString(bk.AuthorNames) + "\n")
+			sb.WriteString("✍️ " + escapeTG(clipRunes(bk.AuthorNames, 160)) + "\n")
 		}
 		sb.WriteString(fmt.Sprintf("ID: <code>%d</code> · %s\n", bk.ID, formatSize(bk.Size)))
 		if bk.SeriesTitle != "" {
@@ -422,10 +424,10 @@ func (b *Bot) formatResults(fromID int64, sid string, page int, books []store.Bo
 			if bk.SeqNumber > 0 {
 				seq = fmt.Sprintf(" [%d]", bk.SeqNumber)
 			}
-			sb.WriteString("📖 " + html.EscapeString(bk.SeriesTitle) + seq + "\n")
+			sb.WriteString("📖 " + escapeTG(clipRunes(bk.SeriesTitle, 120)) + seq + "\n")
 		}
 	}
-	text := trimLen(sb.String(), maxMessage)
+	text := fitHTML(sb.String(), maxMessage)
 
 	var rows [][]tgbotapi.InlineKeyboardButton
 	var pick []tgbotapi.InlineKeyboardButton
@@ -467,7 +469,7 @@ func (b *Bot) sendBookCard(ctx context.Context, chatID, fromID, bookID int64, ba
 	}
 	if len(cover) > 0 {
 		photo := tgbotapi.NewPhoto(chatID, tgbotapi.FileBytes{Name: "cover.jpg", Bytes: cover})
-		photo.Caption = trimLen(caption, maxCaption)
+		photo.Caption = fitHTML(caption, maxCaption)
 		photo.ParseMode = "HTML"
 		photo.ReplyMarkup = keyboard
 		if _, err := b.api.Send(photo); err != nil {
@@ -480,7 +482,7 @@ func (b *Bot) sendBookCard(ctx context.Context, chatID, fromID, bookID int64, ba
 }
 
 func (b *Bot) sendBookText(chatID int64, caption string, keyboard tgbotapi.InlineKeyboardMarkup) {
-	msg := tgbotapi.NewMessage(chatID, trimLen(caption, maxMessage))
+	msg := tgbotapi.NewMessage(chatID, fitHTML(caption, maxMessage))
 	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = keyboard
 	if _, err := b.api.Send(msg); err != nil {
@@ -490,30 +492,29 @@ func (b *Bot) sendBookText(chatID int64, caption string, keyboard tgbotapi.Inlin
 
 func (b *Bot) formatBookCard(fromID int64, d *store.BookDetails) string {
 	var sb strings.Builder
-	sb.WriteString("<b>" + html.EscapeString(d.Title) + "</b>\n")
+	sb.WriteString("<b>" + escapeTG(clipRunes(d.Title, 200)) + "</b>\n")
 	if d.AuthorNames != "" {
-		sb.WriteString("✍️ " + html.EscapeString(d.AuthorNames) + "\n")
+		sb.WriteString("✍️ " + escapeTG(clipRunes(d.AuthorNames, 200)) + "\n")
 	}
 	if d.SeriesTitle != "" {
 		seq := ""
 		if d.SeqNumber > 0 {
 			seq = fmt.Sprintf(" [%d]", d.SeqNumber)
 		}
-		sb.WriteString(b.tr(fromID, "series_label") + " " + html.EscapeString(d.SeriesTitle) + seq + "\n")
+		sb.WriteString(b.tr(fromID, "series_label") + " " + escapeTG(clipRunes(d.SeriesTitle, 160)) + seq + "\n")
 	}
 	sb.WriteString(fmt.Sprintf("ID: <code>%d</code>\n", d.ID))
 	if len(d.Genres) > 0 {
-		sb.WriteString(b.tr(fromID, "genre_label") + " " + html.EscapeString(strings.Join(d.Genres, ", ")) + "\n")
+		sb.WriteString(b.tr(fromID, "genre_label") + " " + escapeTG(strings.Join(d.Genres, ", ")) + "\n")
 	}
-	sb.WriteString(b.tr(fromID, "lang_label") + " " + html.EscapeString(langLabel(d.Lang)) + "\n")
-	sb.WriteString(formatSize(d.Size) + " · ." + d.Ext + "\n")
+	sb.WriteString(b.tr(fromID, "lang_label") + " " + escapeTG(langLabel(d.Lang)) + "\n")
+	sb.WriteString(formatSize(d.Size) + " · ." + escapeTG(d.Ext) + "\n")
 
 	if b.lib != nil {
 		if meta, err := b.lib.Meta(d.Folder, d.File, d.Ext); err == nil && meta != nil && meta.AnnotationHTML != "" {
-			plain := stripTags(meta.AnnotationHTML)
-			plain = trimLen(plain, 600)
+			plain := clipRunes(stripTags(meta.AnnotationHTML), 500)
 			if plain != "" {
-				sb.WriteString("\n<i>" + html.EscapeString(plain) + "</i>\n")
+				sb.WriteString("\n<i>" + escapeTG(plain) + "</i>\n")
 			}
 		}
 	}
@@ -738,12 +739,72 @@ func sanitizeName(s string) string {
 	return out
 }
 
-func trimLen(s string, n int) string {
-	if utf8.RuneCountInString(s) <= n {
+func escapeTG(s string) string {
+	return html.EscapeString(s)
+}
+
+func clipRunes(s string, n int) string {
+	if n <= 0 || utf8.RuneCountInString(s) <= n {
 		return s
 	}
 	runes := []rune(s)
 	return string(runes[:n-1]) + "…"
+}
+
+// fitHTML truncates HTML for Telegram without leaving unclosed tags.
+func fitHTML(s string, limit int) string {
+	if utf8.RuneCountInString(s) <= limit {
+		return closeTGTags(s)
+	}
+	runes := []rune(s)
+	cut := string(runes[:limit])
+	if i := strings.LastIndex(cut, "<"); i >= 0 && !strings.Contains(cut[i:], ">") {
+		cut = cut[:i]
+	}
+	return closeTGTags(strings.TrimRight(cut, " \n\t") + "…")
+}
+
+func closeTGTags(s string) string {
+	allowed := map[string]bool{
+		"b": true, "i": true, "u": true, "s": true,
+		"code": true, "pre": true, "tg-spoiler": true,
+	}
+	var stack []string
+	for i := 0; i < len(s); {
+		if s[i] != '<' {
+			i++
+			continue
+		}
+		end := strings.IndexByte(s[i:], '>')
+		if end < 0 {
+			break
+		}
+		tag := s[i+1 : i+end]
+		i += end + 1
+		closing := false
+		if strings.HasPrefix(tag, "/") {
+			closing = true
+			tag = tag[1:]
+		}
+		if !allowed[tag] {
+			continue
+		}
+		if closing {
+			for len(stack) > 0 {
+				top := stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+				if top == tag {
+					break
+				}
+			}
+			continue
+		}
+		stack = append(stack, tag)
+	}
+	for i := len(stack) - 1; i >= 0; i-- {
+		s += "</" + stack[i] + ">"
+	}
+	return s
 }
 
 func stripTags(htmlStr string) string {
