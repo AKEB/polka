@@ -17,7 +17,10 @@ import (
 	"github.com/bodgit/sevenzip"
 )
 
-var ErrNoFile = errors.New("book file not found")
+var (
+	ErrNoFile                = errors.New("book file not found")
+	ErrUnsupportedConversion = errors.New("unsupported conversion")
+)
 
 type Library struct {
 	root string

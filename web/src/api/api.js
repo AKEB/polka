@@ -60,6 +60,10 @@ export const api = {
     return buildUrl(`Images/fb2/${bookId}`);
   },
 
+  convertUrl(bookId, fmt) {
+    return buildUrl(`Images/convert/${bookId}/${fmt}`);
+  },
+
   zipUrl(bookId) {
     return buildUrl(`Images/zip/${bookId}`);
   },

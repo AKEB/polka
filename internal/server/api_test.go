@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -200,6 +201,23 @@ func TestAPIEndToEnd(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Content-Disposition"), "100.fb2") {
 		t.Errorf("fb2 download: %d %s", resp.StatusCode, resp.Header.Get("Content-Disposition"))
+	}
+
+	// On-the-fly conversion to EPUB
+	resp, err = http.Get(ts.URL + "/Images/convert/" + itoa64(bookID) + "/epub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	epubBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "application/epub+zip" {
+		t.Errorf("epub convert: %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	if len(epubBody) < 4 || string(epubBody[:2]) != "PK" {
+		t.Errorf("epub convert is not a zip (%d bytes)", len(epubBody))
+	}
+	if !strings.Contains(resp.Header.Get("Content-Disposition"), ".epub") {
+		t.Errorf("epub convert disposition: %s", resp.Header.Get("Content-Disposition"))
 	}
 
 	// zip and compact

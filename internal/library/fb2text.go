@@ -483,3 +483,45 @@ func ExtractBinary(r io.Reader, id string) ([]byte, string, error) {
 		return data, ctype, nil
 	}
 }
+
+// FB2Binary is an embedded file from an FB2 <binary> element.
+type FB2Binary struct {
+	ID   string
+	Mime string
+	Data []byte
+}
+
+// ExtractAllBinaries reads every <binary> from an FB2.
+func ExtractAllBinaries(r io.Reader) ([]FB2Binary, error) {
+	dec := xml.NewDecoder(r)
+	dec.CharsetReader = charset.NewReaderLabel
+	dec.Strict = false
+	var out []FB2Binary
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			return out, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		start, ok := tok.(xml.StartElement)
+		if !ok || start.Name.Local != "binary" {
+			continue
+		}
+		id := attrValue(start, "id")
+		ctype := attrValue(start, "content-type")
+		var b64 string
+		if err := dec.DecodeElement(&b64, &start); err != nil {
+			return nil, err
+		}
+		data, err := decodeBase64(b64)
+		if err != nil {
+			continue
+		}
+		if id == "" {
+			continue
+		}
+		out = append(out, FB2Binary{ID: id, Mime: ctype, Data: data})
+	}
+}

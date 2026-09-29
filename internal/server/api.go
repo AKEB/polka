@@ -70,6 +70,10 @@ func (s *Server) apiError(w http.ResponseWriter, err error) {
 		http.NotFound(w, nil)
 		return
 	}
+	if errors.Is(err, library.ErrUnsupportedConversion) {
+		http.Error(w, "cannot convert this format", http.StatusUnsupportedMediaType)
+		return
+	}
 	s.log.Error("api", "error", err)
 	http.Error(w, "internal error", http.StatusInternalServerError)
 }
@@ -522,6 +526,58 @@ func (s *Server) handleBookCompact(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentTypeFor("fb2"))
 	w.Header().Set("Content-Disposition", `attachment; filename="`+f.File+`.compact.fb2"`)
 	w.Write(compact)
+}
+
+func (s *Server) handleBookConvert(w http.ResponseWriter, r *http.Request) {
+	f := s.bookFileOr404(w, r)
+	if f == nil {
+		return
+	}
+	to := strings.ToLower(r.PathValue("fmt"))
+	if !library.CanConvert(f.Ext, to) {
+		http.Error(w, "cannot convert this format", http.StatusUnsupportedMediaType)
+		return
+	}
+	info := convertInfoFromFile(f)
+	if d, err := s.st.BookDetails(r.Context(), f.ID); err == nil {
+		info = convertInfoFromDetails(d)
+	}
+	data, err := s.lib.ConvertBook(f.Folder, f.File, f.Ext, to, info)
+	if err != nil {
+		s.log.Warn("convert", "book", f.ID, "from", f.Ext, "to", to, "error", err)
+		s.apiError(w, err)
+		return
+	}
+
+	name := sanitizeFileName(info.Title)
+	if name == "" {
+		name = f.File
+	}
+	w.Header().Set("Content-Type", contentTypeFor(to))
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`.`+to+`"`)
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	tee := &digestTee{}
+	copied, _ := io.Copy(io.MultiWriter(w, tee), bytes.NewReader(data))
+	s.recordDigest(tee, f.ID, int64(len(data)), copied)
+}
+
+func convertInfoFromFile(f *store.BookFile) library.ConvertInfo {
+	return library.ConvertInfo{Title: f.Title}
+}
+
+func convertInfoFromDetails(d *store.BookDetails) library.ConvertInfo {
+	info := library.ConvertInfo{Title: d.Title}
+	for _, a := range d.Authors {
+		info.Authors = append(info.Authors, library.PersonName{First: a.First, Middle: a.Middle, Last: a.Last})
+	}
+	if len(d.Series) > 0 {
+		info.Series = d.Series[0].Title
+		info.SeqNum = d.Series[0].SeqNumber
+	} else if d.SeriesTitle != "" {
+		info.Series = d.SeriesTitle
+		info.SeqNum = d.SeqNumber
+	}
+	return info
 }
 
 func contentTypeFor(ext string) string {

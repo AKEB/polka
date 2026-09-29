@@ -151,6 +151,7 @@ func TestRouteAccess(t *testing.T) {
 		{"GET", "/Images/export?ids=" + id, ""},
 		{"GET", "/Images/fb2compact/" + id, ""},
 		{"GET", "/Images/fb2/" + id, ""},
+		{"GET", "/Images/convert/" + id + "/epub", ""},
 		{"GET", "/Images/zip/" + id, ""},
 		{"GET", "/main/getBooks/getBookForm?selectedItemID=" + id, ""},
 		{"GET", "/main/getBooks/getBooksByIds?ids=" + id, ""},

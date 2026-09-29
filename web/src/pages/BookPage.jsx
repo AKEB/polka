@@ -436,6 +436,16 @@ const BookPage = ({ user, sync }) => {
             <a className={`btn ${Ext === ".fb2" || Ext === ".pdf" ? "btn-ghost" : "btn-primary"}`} href={api.fb2Url(BookID)}>
               {t("book.download", { ext: Ext || ".fb2" })}
             </a>
+            {[".fb2", ".txt"].includes(Ext) && (
+              <a className="btn btn-ghost" href={api.convertUrl(BookID, "epub")}>
+                {t("book.download", { ext: ".epub" })}
+              </a>
+            )}
+            {[".epub", ".txt"].includes(Ext) && (
+              <a className="btn btn-ghost" href={api.convertUrl(BookID, "fb2")}>
+                {t("book.download", { ext: ".fb2" })}
+              </a>
+            )}
             {smtpReady && (
               <button
                 type="button"
@@ -475,9 +485,11 @@ const BookPage = ({ user, sync }) => {
             <a className="btn btn-ghost" href={api.zipUrl(BookID)}>
               {t("book.downloadZip")}
             </a>
-            <a className="btn btn-ghost" href={api.fb2CompactUrl(BookID)}>
-              {t("book.downloadCompact", { ext: Ext || ".fb2" })}
-            </a>
+            {Ext === ".fb2" && (
+              <a className="btn btn-ghost" href={api.fb2CompactUrl(BookID)}>
+                {t("book.downloadCompact", { ext: Ext })}
+              </a>
+            )}
             {user?.role === "admin" && (
               <button type="button" className="btn btn-ghost book-page__delete" onClick={removeBook}>
                 {t("book.delete")}

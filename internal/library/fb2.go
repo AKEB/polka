@@ -28,10 +28,35 @@ type FB2Meta struct {
 	ISBN           string
 	Cover          []byte
 	CoverMime      string
+	CoverID        string
 }
 
 type PersonName struct {
 	First, Middle, Last string
+}
+
+// String is the display name: "First Middle Last".
+func (p PersonName) String() string {
+	parts := make([]string, 0, 3)
+	for _, s := range []string{p.First, p.Middle, p.Last} {
+		if s != "" {
+			parts = append(parts, s)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// FileAs is the sort key: "Last, First Middle".
+func (p PersonName) FileAs() string {
+	given := strings.TrimSpace(p.First + " " + p.Middle)
+	switch {
+	case p.Last != "" && given != "":
+		return p.Last + ", " + given
+	case p.Last != "":
+		return p.Last
+	default:
+		return given
+	}
 }
 
 // ParseFB2 parses an FB2 as a stream. With withCover=true it reads on
@@ -83,6 +108,7 @@ func ParseFB2(r io.Reader, withCover bool) (*FB2Meta, error) {
 				for _, a := range t.Attr {
 					if a.Name.Local == "href" {
 						coverID = strings.TrimPrefix(a.Value, "#")
+						meta.CoverID = coverID
 					}
 				}
 
@@ -128,6 +154,7 @@ func ParseFB2(r io.Reader, withCover bool) (*FB2Meta, error) {
 					}
 					meta.Cover = data
 					meta.CoverMime = ctype
+					meta.CoverID = id
 					return meta, nil
 				}
 				if err := dec.Skip(); err != nil {

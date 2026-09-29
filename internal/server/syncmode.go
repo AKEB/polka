@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -52,6 +53,7 @@ func (s *Server) registerSyncRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /main/getBooks/getBookForm", s.syncBookForm)
 	mux.HandleFunc("GET /Images/covers/{id}", s.syncCover)
 	mux.HandleFunc("GET /Images/fb2/{id}", s.syncDownload)
+	mux.HandleFunc("GET /Images/convert/{id}/{fmt}", s.syncConvert)
 
 	// Reading: offline books locally, everything else proxied.
 	mux.HandleFunc("GET /api/v1/read/{id}", s.syncReadMeta)
@@ -275,6 +277,70 @@ func (s *Server) syncDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Error(w, "server unavailable (offline)", http.StatusServiceUnavailable)
+}
+
+func (s *Server) syncConvert(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	to := strings.ToLower(r.PathValue("fmt"))
+	rc, b, err := s.sync.OpenOffline(r.Context(), id)
+	if err == nil {
+		defer rc.Close()
+		if !library.CanConvert(b.Ext, to) {
+			http.Error(w, "cannot convert this format", http.StatusUnsupportedMediaType)
+			return
+		}
+		raw, err := io.ReadAll(rc)
+		if err != nil {
+			s.apiError(w, err)
+			return
+		}
+		info := library.ConvertInfo{Title: b.Title, Authors: authorsFromLine(b.Authors), Series: b.SeriesTitle, SeqNum: b.SeqNumber}
+		data, err := library.Convert(raw, b.Ext, to, info)
+		if err != nil {
+			s.apiError(w, err)
+			return
+		}
+		name := b.Title
+		if name == "" {
+			name = strconv.FormatInt(id, 10)
+		}
+		w.Header().Set("Content-Type", contentTypeFor(to))
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, name+"."+to))
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		w.Write(data)
+		return
+	}
+	if s.sync.Online() {
+		s.sync.Proxy(w, r)
+		return
+	}
+	http.Error(w, "server unavailable (offline)", http.StatusServiceUnavailable)
+}
+
+func authorsFromLine(s string) []library.PersonName {
+	var out []library.PersonName
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		fields := strings.Fields(part)
+		var p library.PersonName
+		switch len(fields) {
+		case 1:
+			p.Last = fields[0]
+		case 2:
+			p.Last, p.First = fields[0], fields[1]
+		default:
+			p.Last, p.First, p.Middle = fields[0], fields[1], strings.Join(fields[2:], " ")
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // --- Reading offline books ---

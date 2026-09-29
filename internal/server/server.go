@@ -193,6 +193,7 @@ func New(cfg *config.Config, log *slog.Logger, st *store.Store, lib *library.Lib
 		mux.HandleFunc("GET /Images/fb2/{id}", s.protected(s.handleBookDownload))
 		mux.HandleFunc("GET /Images/zip/{id}", s.protected(s.handleBookZip))
 		mux.HandleFunc("GET /Images/fb2compact/{id}", s.protected(s.handleBookCompact))
+		mux.HandleFunc("GET /Images/convert/{id}/{fmt}", s.protected(s.handleBookConvert))
 
 		// Settings (administrator only)
 		if !s.demoMode() {

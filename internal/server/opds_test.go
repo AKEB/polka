@@ -37,8 +37,12 @@ func TestOpdsDownloadAuthChallenge(t *testing.T) {
 	id := up["results"][0].BookID
 
 	plain := &http.Client{}
-	for _, path := range []string{"/Images/fb2/", "/Images/zip/", "/Images/covers/"} {
-		r, _ := plain.Get(ts.URL + path + itoa64(id))
+	for _, path := range []string{"/Images/fb2/", "/Images/zip/", "/Images/covers/", "/Images/convert/"} {
+		suffix := itoa64(id)
+		if strings.HasPrefix(path, "/Images/convert/") {
+			suffix += "/epub"
+		}
+		r, _ := plain.Get(ts.URL + path + suffix)
 		r.Body.Close()
 		if r.StatusCode != 401 || !strings.Contains(r.Header.Get("WWW-Authenticate"), "Basic") {
 			t.Errorf("%s without auth -> %d %q, want 401 + Basic challenge",
@@ -123,6 +127,8 @@ func TestOpdsCatalog(t *testing.T) {
 		"Толстой Лев",
 		"application/fb2+zip",
 		"/Images/covers/",
+		"/Images/convert/",
+		"application/epub+zip",
 		"http://opds-spec.org/acquisition",
 	} {
 		if !strings.Contains(news, want) {
