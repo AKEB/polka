@@ -714,3 +714,57 @@ func TestUpdateBookAndLangFilter(t *testing.T) {
 		t.Error("empty title must fail")
 	}
 }
+
+func TestCatalogShelvesRespectsLangBeforeLimit(t *testing.T) {
+	// Rare-language books share popular genres with a huge majority of
+	// other-language titles. Sampling the genre before applying the
+	// language filter would almost never surface them.
+	st, err := Open(filepath.Join(t.TempDir(), "polka.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ctx := context.Background()
+	session, err := st.NewImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 40; i++ {
+		if err := session.Add(&BookInput{
+			LibID: fmt.Sprint(i), Title: fmt.Sprintf("RU %d", i),
+			Authors: []AuthorName{{Last: "Author"}}, Genres: []string{"sf"},
+			Folder: "a.zip", File: fmt.Sprint(i), Ext: "fb2", Lang: "ru",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := session.Add(&BookInput{
+		LibID: "ka-1", Title: "ქართული წიგნი",
+		Authors: []AuthorName{{Last: "ავტორი"}}, Genres: []string{"sf"},
+		Folder: "a.zip", File: "ka-1", Ext: "fb2", Lang: "ka",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Finish(); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 5; i++ {
+		cat, err := st.CatalogShelves(WithLang(ctx, "ka"), 10, 5)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var found bool
+		for _, shelf := range cat {
+			for _, b := range shelf.Books {
+				if b.Lang != "ka" {
+					t.Fatalf("iter %d: non-ka book %q (%s)", i, b.Title, b.Lang)
+				}
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("iter %d: georgian book missing from catalog shelves", i)
+		}
+	}
+}

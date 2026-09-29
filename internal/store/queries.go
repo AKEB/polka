@@ -471,10 +471,11 @@ func (s *Store) CatalogShelves(ctx context.Context, count, limit int) ([]Shelf, 
 
 	var shelves []Shelf
 	for _, g := range picked {
+		// Apply the language filter before LIMIT — otherwise a rare
+		// language is almost never drawn from a large genre.
 		books, err := s.queryBooks(ctx,
-			`b.id IN (SELECT bg.book_id FROM book_genres bg JOIN books lb ON lb.id = bg.book_id AND lb.deleted = 0
-			          WHERE bg.genre_id = ? ORDER BY random() LIMIT ?)`,
-			`b.title`, 0, 0, g.id, limit)
+			`b.id IN (SELECT bg.book_id FROM book_genres bg WHERE bg.genre_id = ?)`,
+			`random()`, limit, 0, g.id)
 		if err != nil {
 			return nil, err
 		}
