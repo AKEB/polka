@@ -404,13 +404,21 @@ func (s *Service) Items(ctx context.Context, collectionID int64) ([]Item, error)
 }
 
 // BookIDs returns the ids of the collection's matched books in list order,
-// paginated (for the shelf). Returns limit+1 rows when there is a next page,
-// like ListBookIDs for lists.
+// paginated (for the shelf). A non-positive limit returns every matched id.
 func (s *Service) BookIDs(ctx context.Context, collectionID int64, limit, offset int) ([]int64, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	q := `
 		SELECT book_id FROM collection_items
 		WHERE collection_id = ? AND book_id != 0
-		ORDER BY position LIMIT ? OFFSET ?`, collectionID, limit, offset)
+		ORDER BY position`
+	args := []any{collectionID}
+	if limit > 0 {
+		q += ` LIMIT ? OFFSET ?`
+		args = append(args, limit, offset)
+	} else if offset > 0 {
+		q += ` LIMIT -1 OFFSET ?`
+		args = append(args, offset)
+	}
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

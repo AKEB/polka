@@ -65,23 +65,27 @@ func (s *Server) collectionShelves(r *http.Request, limit int) []map[string]any 
 		return nil
 	}
 	disabled := s.disabledOrigins(r.Context())
+	ctx := store.WithLang(r.Context(), bookLang(r))
 	var out []map[string]any
 	for _, c := range list {
 		if c.Matched == 0 || disabled[c.Origin] {
 			continue
 		}
-		books, _, err := s.collectionShelfBooks(r.Context(), c.Slug, limit+1, 0)
-		if err != nil || len(books) == 0 {
+		// Load every matched book (lists are small) so the language filter
+		// is applied before the home-page limit — not only to the first page.
+		all, _, err := s.collectionShelfBooks(ctx, c.Slug, 0, 0)
+		if err != nil || len(all) == 0 {
 			continue
 		}
-		hasMore := len(books) > limit
+		hasMore := len(all) > limit
+		books := all
 		if hasMore {
-			books = books[:limit]
+			books = all[:limit]
 		}
 		out = append(out, map[string]any{
 			"id":       collectionShelfPrefix + c.Slug,
 			"title":    c.Title,
-			"subtitle": tr(reqLang(r), "shelf.collection.sub", c.Matched, c.Total),
+			"subtitle": tr(reqLang(r), "shelf.collection.sub", len(all), c.Total),
 			"slug":     c.Slug,
 			"books":    booksJSON(books),
 			"hasMore":  hasMore,
@@ -91,6 +95,8 @@ func (s *Server) collectionShelves(r *http.Request, limit int) []map[string]any 
 }
 
 // collectionShelfBooks returns a page of the collection's books in list order.
+// With a language filter on ctx, books of other languages are skipped and
+// offset/limit apply to the filtered sequence.
 func (s *Server) collectionShelfBooks(ctx context.Context, slug string, limit, offset int) ([]store.Book, string, error) {
 	if s.cols == nil {
 		return nil, "", store.ErrNotFound
@@ -102,12 +108,22 @@ func (s *Server) collectionShelfBooks(ctx context.Context, slug string, limit, o
 	if err != nil {
 		return nil, "", err
 	}
-	ids, err := s.cols.BookIDs(ctx, c.ID, limit, offset)
+	ids, err := s.cols.BookIDs(ctx, c.ID, 0, 0)
 	if err != nil || len(ids) == 0 {
 		return nil, c.Title, err
 	}
 	books, err := s.st.BooksByIDs(ctx, ids)
-	return books, c.Title, err
+	if err != nil {
+		return nil, c.Title, err
+	}
+	if offset > len(books) {
+		return nil, c.Title, nil
+	}
+	books = books[offset:]
+	if limit > 0 && len(books) > limit {
+		books = books[:limit]
+	}
+	return books, c.Title, nil
 }
 
 func (s *Server) collectionsError(w http.ResponseWriter, err error) {

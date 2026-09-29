@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
@@ -115,6 +116,94 @@ func TestCollectionsAPI(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("after delete -> %d", resp.StatusCode)
+	}
+}
+
+func TestCollectionShelvesRespectLang(t *testing.T) {
+	ts, client, st := newManageServer(t)
+	ctx := context.Background()
+	session, err := st.NewImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, b := range []struct {
+		title, lang, file string
+	}{
+		{"War and Peace", "en", "1"},
+		{"Война и мир", "ru", "2"},
+		{"Anna Karenina", "en", "3"},
+	} {
+		if err := session.Add(&store.BookInput{
+			Title: b.title, Authors: []store.AuthorName{{Last: "Толстой", First: "Лев"}},
+			Folder: "a.zip", File: b.file, Ext: "fb2", Lang: b.lang, Added: fmt.Sprintf("2024-01-%02d", i+1),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := session.Finish(); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, _ := mw.CreateFormFile("file", "tolstoy.json")
+	fw.Write([]byte(`{"slug":"tolstoy","title":"Tolstoy picks","items":[
+		{"title":"War and Peace","author":"Лев Толстой"},
+		{"title":"Война и мир","author":"Лев Толстой"},
+		{"title":"Anna Karenina","author":"Лев Толстой"}]}`))
+	mw.Close()
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/admin/collections/import", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("import -> %d", resp.StatusCode)
+	}
+
+	findShelf := func(url string) map[string]any {
+		home := getJSONWith(t, client, url)
+		for _, sh := range home["shelves"].([]any) {
+			m := sh.(map[string]any)
+			if m["id"] == "collection_tolstoy" {
+				return m
+			}
+		}
+		return nil
+	}
+
+	all := findShelf(ts.URL + "/main/getBooks/getHomeShelves")
+	if all == nil || len(all["books"].([]any)) != 3 {
+		t.Fatalf("unfiltered shelf: %v", all)
+	}
+
+	en := findShelf(ts.URL + "/main/getBooks/getHomeShelves?lang=en")
+	if en == nil {
+		t.Fatal("en-filtered collection shelf missing")
+	}
+	books := en["books"].([]any)
+	if len(books) != 2 {
+		t.Fatalf("en books: %d (%v)", len(books), en)
+	}
+	for _, b := range books {
+		if b.(map[string]any)["Lang"] != "en" {
+			t.Errorf("non-en book in en shelf: %v", b)
+		}
+	}
+	if !strings.Contains(en["subtitle"].(string), "2 из 3") && !strings.Contains(en["subtitle"].(string), "2 of 3") {
+		t.Errorf("subtitle should reflect lang-filtered count: %v", en["subtitle"])
+	}
+
+	shelf := getJSONWith(t, client, ts.URL+"/main/getBooks/getShelfBooks?shelfId=collection_tolstoy&lang=en")
+	if len(shelf["titlesList"].([]any)) != 2 {
+		t.Errorf("see-all with lang=en: %v", shelf)
+	}
+
+	ka := findShelf(ts.URL + "/main/getBooks/getHomeShelves?lang=ka")
+	if ka != nil {
+		t.Errorf("no georgian matches: shelf should be hidden, got %v", ka)
 	}
 }
 

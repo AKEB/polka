@@ -1,6 +1,6 @@
 services:
   polka:
-    image: ghcr.io/vestigiumincaligne/polka:latest
+    image: akeb/polka:latest
     # Or build locally instead:
     # build: .
     ports:
