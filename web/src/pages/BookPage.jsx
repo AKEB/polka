@@ -8,7 +8,7 @@ import { fetchBookForm, fetchExternalEnrichment, fetchSimilarBooks } from "../ap
 import Shelf from "../components/Shelf";
 import BookEditForm from "../components/BookEditForm";
 import { deleteBook } from "../api/manage";
-import { clearProgress, fetchProgress } from "../api/reader";
+import { clearProgress, fetchProgress, toggleFinished } from "../api/reader";
 import { rateBook } from "../api/ratings";
 import { toggleWishlist } from "../api/lists";
 import { fetchReaderEmail, setReaderEmail, sendBook } from "../api/send";
@@ -65,7 +65,10 @@ const BookPage = ({ user, sync }) => {
   const resetProgress = () => {
     if (!confirm(t("book.resetProgress.confirm"))) return;
     clearProgress(bookId)
-      .then(() => setReadProgress(0))
+      .then(() => {
+        setReadProgress(0);
+        setFinished(false);
+      })
       .catch(() => alert(t("book.resetProgress.fail")));
   };
 
@@ -77,6 +80,8 @@ const BookPage = ({ user, sync }) => {
   const [enrichmentLoading, setEnrichmentLoading] = useState(false);
   const [similar, setSimilar] = useState(null); // {similar: [], external: []}
   const [readProgress, setReadProgress] = useState(0);
+  const [finished, setFinished] = useState(false);
+  const [finishedBusy, setFinishedBusy] = useState(false);
   const [smtpReady, setSmtpReady] = useState(false);
   const [readerEmail, setReaderEmailState] = useState("");
   const [sendState, setSendState] = useState("idle");
@@ -92,6 +97,23 @@ const BookPage = ({ user, sync }) => {
 
   const onListChange = (listId, added) => {
     setListIds((prev) => (added ? [...prev, listId] : prev.filter((id) => id !== listId)));
+  };
+
+  const flipFinished = () => {
+    if (finishedBusy) return;
+    if (finished && !confirm(t("book.finished.unmark"))) return;
+    setFinishedBusy(true);
+    const next = !finished;
+    toggleFinished(bookId, next)
+      .then(() => {
+        setFinished(next);
+        setReadProgress(next ? 1 : 0);
+        if (next && wishlistId !== null) {
+          onListChange(wishlistId, false);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setFinishedBusy(false));
   };
 
   const flipWishlist = () => {
@@ -152,9 +174,15 @@ const BookPage = ({ user, sync }) => {
   useEffect(() => {
     let cancelled = false;
     setReadProgress(0);
+    setFinished(false);
     setListIds([]);
     fetchProgress(bookId)
-      .then((p) => !cancelled && p?.stored && setReadProgress(Number(p.progress ?? 0)))
+      .then((p) => {
+        if (cancelled || !p?.stored) return;
+        const overall = Number(p.progress ?? 0);
+        setReadProgress(overall);
+        setFinished(overall >= 0.98);
+      })
       .catch(() => {});
     fetchReaderEmail()
       .then((res) => {
@@ -463,16 +491,25 @@ const BookPage = ({ user, sync }) => {
           <div className="book-page__actions">
             {[".fb2", ".txt", ".pdf", ".epub"].includes(Ext) && (
               <Link className="btn btn-primary" to={`/read/${BookID}`}>
-                {readProgress > 0
-                  ? t("book.continue", { p: Math.round(readProgress * 100) })
-                  : t("book.read")}
+                {finished || readProgress <= 0
+                  ? t("book.read")
+                  : t("book.continue", { p: Math.round(readProgress * 100) })}
               </Link>
             )}
-            {readProgress > 0 && (
+            {readProgress > 0 && readProgress < 0.98 && (
               <button type="button" className="btn btn-ghost" onClick={resetProgress}>
                 {t("book.resetProgress")}
               </button>
             )}
+            <button
+              type="button"
+              className={`btn btn-ghost book-page__wish ${finished ? "is-on" : ""}`}
+              onClick={flipFinished}
+              disabled={finishedBusy}
+              title={finished ? t("book.finished.remove") : t("book.finished.add")}
+            >
+              {finished ? t("book.finished.on") : t("book.finished.off")}
+            </button>
             <a className={`btn ${Ext === ".fb2" || Ext === ".pdf" ? "btn-ghost" : "btn-primary"}`} href={api.fb2Url(BookID)}>
               {t("book.download", { ext: Ext || ".fb2" })}
             </a>

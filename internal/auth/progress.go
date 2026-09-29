@@ -91,6 +91,48 @@ func (s *Service) ListProgress(ctx context.Context, userID int64, limit int) ([]
 	return out, rows.Err()
 }
 
+// ListFinished returns books the user marked (or reached) as fully read.
+func (s *Service) ListFinished(ctx context.Context, userID int64, limit int) ([]Progress, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT book_id, chapter, position, overall FROM reading_progress
+		WHERE user_id = ? AND cleared = 0 AND overall >= 0.98
+		ORDER BY updated_at DESC LIMIT ?`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Progress
+	for rows.Next() {
+		var p Progress
+		if err := rows.Scan(&p.BookID, &p.Chapter, &p.Position, &p.Overall); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// MarkFinished records the book as fully read (overall = 1).
+func (s *Service) MarkFinished(ctx context.Context, userID, bookID int64) error {
+	return s.SaveProgress(ctx, userID, bookID, Progress{BookID: bookID, Overall: 1})
+}
+
+// IsFinished reports whether the user has fully read the book.
+func (s *Service) IsFinished(ctx context.Context, userID, bookID int64) (bool, error) {
+	p, err := s.GetProgress(ctx, userID, bookID)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return p.Overall >= 0.98, nil
+}
+
 // DeleteProgress forgets the reading position so the book leaves
 // "Reading now". The row is kept as a tombstone (cleared=1) so a
 // desktop client with an older copy cannot resurrect it on sync.

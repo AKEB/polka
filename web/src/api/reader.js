@@ -55,6 +55,22 @@ export const clearProgress = async (bookId) => {
   return res.json();
 };
 
+export const toggleFinished = async (bookId, done) => {
+  if (!done) localProgress.clear(bookId);
+  const res = await fetch(api.buildUrl(`api/v1/books/${bookId}/finished`), {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", "X-Polka-Lang": getLang() },
+    body: JSON.stringify({ done }),
+  });
+  if (!res.ok) {
+    const err = new Error(`Request failed: ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+};
+
 // Per-user reader preferences on the server (401 in public mode is fine —
 // the caller falls back to localStorage).
 export const fetchReaderPrefs = () => api.getJson("api/v1/me/reader-prefs");

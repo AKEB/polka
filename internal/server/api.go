@@ -96,7 +96,7 @@ func (s *Server) handleGetHomeShelves(w http.ResponseWriter, r *http.Request) {
 	}
 	out := shelvesJSON(shelves)
 
-	// Personal shelves on top: "Reading now", "Want to read",
+	// Personal shelves on top: "Reading now", "Finished", "Want to read",
 	// then recommendations ("Continue series", "For you").
 	if u := s.currentUser(r); u != nil {
 		lang := reqLang(r)
@@ -104,6 +104,11 @@ func (s *Server) handleGetHomeShelves(w http.ResponseWriter, r *http.Request) {
 		if reading := s.readingShelf(r, u.ID, limit); len(reading) > 0 {
 			personal = append(personal, map[string]any{
 				"id": "reading", "title": tr(lang, "shelf.reading"), "books": reading, "hasMore": false,
+			})
+		}
+		if finished := s.finishedShelf(r, u.ID, limit); len(finished) > 0 {
+			personal = append(personal, map[string]any{
+				"id": "finished", "title": tr(lang, "shelf.finished"), "books": finished, "hasMore": false,
 			})
 		}
 		if wishlist := s.wishlistShelf(r, u.ID, limit); wishlist != nil {
@@ -165,6 +170,30 @@ func (s *Server) readingShelf(r *http.Request, userID int64, limit int) []map[st
 	for _, b := range books {
 		j := bookJSON(b)
 		j["ReadingProgress"] = overall[b.ID]
+		out = append(out, j)
+	}
+	return out
+}
+
+// finishedShelf returns books the user has fully read.
+func (s *Server) finishedShelf(r *http.Request, userID int64, limit int) []map[string]any {
+	progress, err := s.users.ListFinished(r.Context(), userID, limit)
+	if err != nil || len(progress) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(progress))
+	for _, p := range progress {
+		ids = append(ids, p.BookID)
+	}
+	books, err := s.st.BooksByIDs(r.Context(), ids)
+	if err != nil {
+		s.log.Warn("finished shelf", "error", err)
+		return nil
+	}
+	out := make([]map[string]any, 0, len(books))
+	for _, b := range books {
+		j := bookJSON(b)
+		j["ReadingProgress"] = 1.0
 		out = append(out, j)
 	}
 	return out

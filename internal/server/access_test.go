@@ -187,6 +187,7 @@ func TestRouteAccess(t *testing.T) {
 		{"POST", "/api/v1/books/" + id + "/rating", `{"rating":3}`},
 		{"POST", "/api/v1/books/" + id + "/send", `{}`},
 		{"POST", "/api/v1/books/" + id + "/wishlist", `{"add":true}`},
+		{"POST", "/api/v1/books/" + id + "/finished", `{"done":true}`},
 		{"POST", "/api/v1/lists", `{"name":"x"}`},
 		{"POST", "/api/v1/lists/1", `{"name":"y"}`},
 		{"POST", "/api/v1/lists/1/books", `{"bookId":1}`},

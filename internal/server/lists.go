@@ -224,3 +224,40 @@ func (s *Server) handleWishlistToggle(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]any{"ok": true, "inWishlist": req.Add, "listId": wl.ID})
 }
+
+// POST /api/v1/books/{id}/finished {done} — mark the book as fully read.
+func (s *Server) handleFinishedToggle(w http.ResponseWriter, r *http.Request) {
+	u := s.requireUser(w, r)
+	if u == nil {
+		return
+	}
+	bookID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	var req struct {
+		Done bool `json:"done"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	if req.Done {
+		if err := s.users.MarkFinished(ctx, u.ID, bookID); err != nil {
+			s.apiError(w, err)
+			return
+		}
+		// Finished books leave the wishlist.
+		if wl, err := s.users.Wishlist(ctx, u.ID); err == nil {
+			_ = s.users.RemoveFromList(ctx, u.ID, wl.ID, bookID)
+		}
+	} else {
+		if err := s.users.DeleteProgress(ctx, u.ID, bookID); err != nil {
+			s.apiError(w, err)
+			return
+		}
+	}
+	writeJSON(w, map[string]any{"ok": true, "finished": req.Done})
+}

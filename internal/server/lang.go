@@ -22,6 +22,7 @@ func reqLang(r *http.Request) string {
 var serverStrings = map[string]map[string]string{
 	"ru": {
 		"shelf.reading":        "Читаю сейчас",
+		"shelf.finished":       "Прочитано",
 		"shelf.wishlist":       "Хочу прочитать",
 		"shelf.offline":        "Доступно офлайн",
 		"shelf.series_next":    "Продолжить серии",
@@ -53,6 +54,7 @@ var serverStrings = map[string]map[string]string{
 	},
 	"en": {
 		"shelf.reading":        "Reading now",
+		"shelf.finished":       "Finished",
 		"shelf.wishlist":       "Want to read",
 		"shelf.offline":        "Available offline",
 		"shelf.series_next":    "Continue the series",

@@ -9,6 +9,7 @@ import "./HomePage.css";
 
 const SHELF_TITLES = () => ({
   reading: { title: t("shelf.reading"), subtitle: t("shelf.reading.sub") },
+  finished: { title: t("shelf.finished"), subtitle: t("shelf.finished.sub") },
   wishlist: { title: t("shelf.wishlist"), subtitle: t("shelf.wishlist.sub") },
   offline: { title: t("shelf.offline"), subtitle: t("shelf.offline.sub") },
   series_next: { title: t("shelf.series_next"), subtitle: t("shelf.series_next.sub") },

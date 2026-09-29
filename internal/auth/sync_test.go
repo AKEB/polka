@@ -170,3 +170,24 @@ func TestDeleteProgressTombstone(t *testing.T) {
 		t.Errorf("export after resume: %+v", state.Progress)
 	}
 }
+
+func TestMarkFinished(t *testing.T) {
+	s := newService(t)
+	ctx := context.Background()
+	u, _ := s.CreateUser(ctx, "owner", "pass1234", "", RoleAdmin)
+
+	if err := s.MarkFinished(ctx, u.ID, 42); err != nil {
+		t.Fatal(err)
+	}
+	ok, err := s.IsFinished(ctx, u.ID, 42)
+	if err != nil || !ok {
+		t.Fatalf("IsFinished: %v %v", ok, err)
+	}
+	if list, err := s.ListProgress(ctx, u.ID, 10); err != nil || len(list) != 0 {
+		t.Errorf("finished book still in reading list: %v %v", list, err)
+	}
+	done, err := s.ListFinished(ctx, u.ID, 10)
+	if err != nil || len(done) != 1 || done[0].BookID != 42 {
+		t.Fatalf("ListFinished: %v %v", done, err)
+	}
+}

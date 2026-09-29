@@ -13,15 +13,20 @@ import (
 // on the book card (local scoring + external sources).
 
 // userSeeds gathers the user's signals: liked books (rating >= 4),
-// lists, currently reading; plus everything familiar — for exclusion.
+// finished reads, lists, currently reading; plus everything familiar — for exclusion.
 func (s *Server) userSeeds(r *http.Request, userID int64) (seeds, exclude []int64) {
 	ctx := r.Context()
 	liked, _ := s.users.RatedBookIDs(ctx, userID, 4)
 	listed, _ := s.users.AllListBookIDs(ctx, userID)
-	var reading []int64
+	var reading, finished []int64
 	if progress, err := s.users.ListProgress(ctx, userID, 100); err == nil {
 		for _, p := range progress {
 			reading = append(reading, p.BookID)
+		}
+	}
+	if done, err := s.users.ListFinished(ctx, userID, 100); err == nil {
+		for _, p := range done {
+			finished = append(finished, p.BookID)
 		}
 	}
 	rated, _ := s.users.RatedBookIDs(ctx, userID, 0)
@@ -39,12 +44,14 @@ func (s *Server) userSeeds(r *http.Request, userID int64) (seeds, exclude []int6
 		}
 	}
 	// Limit seeds to the 60 most recent: SQL with IN lists must stay lightweight.
+	// Finished reads first — they are the strongest signal for "more like this".
+	add(&seeds, finished, 60)
 	add(&seeds, liked, 60)
 	add(&seeds, listed, 60)
 	add(&seeds, reading, 60)
 
 	excludeSeen := map[int64]bool{}
-	for _, ids := range [][]int64{rated, listed, reading} {
+	for _, ids := range [][]int64{rated, listed, reading, finished} {
 		for _, id := range ids {
 			if !excludeSeen[id] {
 				excludeSeen[id] = true
