@@ -1,14 +1,15 @@
 module github.com/vestigiumincaligne/polka
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/bodgit/sevenzip v1.6.4
 	github.com/gen2brain/jpegxl v0.4.5
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	golang.org/x/crypto v0.53.0
+	golang.org/x/image v0.46.0
 	golang.org/x/net v0.55.0
-	golang.org/x/text v0.38.0
+	golang.org/x/text v0.42.0
 	modernc.org/sqlite v1.52.0
 )
 
@@ -31,7 +32,7 @@ require (
 	github.com/tetratelabs/wazero v1.9.0 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	go4.org v0.0.0-20260112195520-a5071408f32f // indirect
-	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 	modernc.org/libc v1.73.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

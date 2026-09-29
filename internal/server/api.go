@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vestigiumincaligne/polka/internal/covergen"
 	"github.com/vestigiumincaligne/polka/internal/genres"
 	"github.com/vestigiumincaligne/polka/internal/langs"
 	"github.com/vestigiumincaligne/polka/internal/library"
@@ -483,8 +484,19 @@ func (s *Server) handleCover(w http.ResponseWriter, r *http.Request) {
 	data, mime, err := s.lib.Cover(f.ID, f.Folder, f.File, f.Ext)
 	if err != nil {
 		s.log.Info("no cover", "book", f.ID, "folder", f.Folder, "file", f.File, "error", err)
-		s.apiError(w, err)
-		return
+		authors := ""
+		if d, derr := s.st.BookDetails(r.Context(), f.ID); derr == nil {
+			authors = d.AuthorNames
+			if d.Title != "" {
+				f.Title = d.Title
+			}
+		}
+		png, gerr := covergen.PNG(f.Title, authors)
+		if gerr != nil {
+			s.apiError(w, err)
+			return
+		}
+		data, mime = png, "image/png"
 	}
 	if mime == "" {
 		mime = "image/jpeg"

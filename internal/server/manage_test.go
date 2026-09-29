@@ -309,3 +309,31 @@ func TestWebImportInpxFromPath(t *testing.T) {
 		t.Errorf("server-path inpx was removed: %v", err)
 	}
 }
+
+func TestGeneratedCover(t *testing.T) {
+	ts, client, _ := newManageServer(t)
+
+	resp := uploadFiles(t, client, ts.URL+"/admin/books/upload", map[string][]byte{
+		"Pushkin - Evgeniy Onegin.txt": []byte("Глава первая.\n\nМой дядя самых честных правил…\n"),
+	}, nil)
+	var up map[string][]uploadResult
+	json.NewDecoder(resp.Body).Decode(&up)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || len(up["results"]) == 0 || up["results"][0].BookID == 0 {
+		t.Fatalf("txt upload: %d %+v", resp.StatusCode, up)
+	}
+	bookID := up["results"][0].BookID
+
+	resp, err := client.Get(ts.URL + "/Images/covers/" + itoa64(bookID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "image/png" || len(body) < 500 {
+		t.Fatalf("generated cover: %d %s %d bytes", resp.StatusCode, resp.Header.Get("Content-Type"), len(body))
+	}
+	if body[0] != 0x89 || string(body[1:4]) != "PNG" {
+		t.Fatalf("not a png signature: %x", body[:8])
+	}
+}

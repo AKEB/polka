@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vestigiumincaligne/polka/internal/covergen"
 	"github.com/vestigiumincaligne/polka/internal/library"
 	"github.com/vestigiumincaligne/polka/internal/syncer"
 )
@@ -250,6 +251,16 @@ func (s *Server) syncCover(w http.ResponseWriter, r *http.Request) {
 	if s.sync.Online() {
 		s.sync.Proxy(w, r)
 		return
+	}
+	// Offline with no cached art: still show a generated cover from
+	// the offline card metadata so the catalog is not blank.
+	if b, err := s.sync.OfflineBook(r.Context(), id); err == nil {
+		if png, gerr := covergen.PNG(b.Title, b.Authors); gerr == nil {
+			w.Header().Set("Content-Type", "image/png")
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			w.Write(png)
+			return
+		}
 	}
 	http.NotFound(w, r)
 }
