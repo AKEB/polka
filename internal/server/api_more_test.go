@@ -131,6 +131,18 @@ func TestReadingShelfAndOpdsReading(t *testing.T) {
 	if resp.StatusCode != 200 || !strings.Contains(string(feed), "Война и мир") {
 		t.Errorf("opds reading: %d %s", resp.StatusCode, feed)
 	}
+
+	resp = postJSON(t, c, f.ts.URL+"/api/v1/read/"+id+"/progress/delete", nil)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("clear progress -> %d", resp.StatusCode)
+	}
+	home = getJSONWith(t, c, f.ts.URL+"/main/getBooks/getHomeShelves")
+	for _, sh := range home["shelves"].([]any) {
+		if sh.(map[string]any)["id"] == "reading" {
+			t.Error("reading shelf still there after reset")
+		}
+	}
 	// Series browsing in OPDS.
 	for _, p := range []string{"/opds/series/К", "/opds/series/id/" + itoa64(f.seriesID)} {
 		resp := do(t, c, "GET", f.ts.URL+p, "")

@@ -31,6 +31,28 @@ export const localProgress = {
       /* quota exceeded — no big deal */
     }
   },
+  clear(bookId) {
+    try {
+      localStorage.removeItem(`polka-read-${bookId}`);
+    } catch {
+      /* ignore */
+    }
+  },
+};
+
+export const clearProgress = async (bookId) => {
+  localProgress.clear(bookId);
+  const res = await fetch(api.buildUrl(`api/v1/read/${bookId}/progress/delete`), {
+    method: "POST",
+    credentials: "include",
+    headers: { "X-Polka-Lang": getLang() },
+  });
+  if (!res.ok) {
+    const err = new Error(`Request failed: ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
 };
 
 // Per-user reader preferences on the server (401 in public mode is fine —

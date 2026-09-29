@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import BookCard from "./BookCard";
 import "./Shelf.css";
 
-const Shelf = ({ title, subtitle, books = [], emptyHint, onSeeAll }) => {
+const Shelf = ({ title, subtitle, books = [], emptyHint, onSeeAll, onForgetBook }) => {
   const trackRef = useRef(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -76,7 +76,7 @@ const Shelf = ({ title, subtitle, books = [], emptyHint, onSeeAll }) => {
         <div className="shelf__track" ref={trackRef}>
           {books.map((book) => (
             <div key={book.BookID} className="shelf__item">
-              <BookCard book={book} />
+              <BookCard book={book} onForget={onForgetBook} />
             </div>
           ))}
         </div>

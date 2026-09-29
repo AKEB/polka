@@ -6,6 +6,10 @@
   min-width: 0;
 }
 
+.book-card__cover-wrap {
+  position: relative;
+}
+
 .book-card__cover-link {
   display: block;
   border-radius: var(--radius-md);
@@ -15,6 +19,27 @@
   aspect-ratio: 2 / 3;
   box-shadow: var(--shadow-sm);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.book-card__forget {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.book-card__forget:hover {
+  background: rgba(0, 0, 0, 0.8);
 }
 
 .book-card__cover-link:hover {

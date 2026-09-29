@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -118,5 +119,54 @@ func TestSyncStateSubSecondOrdering(t *testing.T) {
 	r2, _ := s.ExportState(ctx, u.ID)
 	if !(r2.Ratings[0].UpdatedAt > r1.Ratings[0].UpdatedAt) {
 		t.Errorf("rating timestamps must grow: %q then %q", r1.Ratings[0].UpdatedAt, r2.Ratings[0].UpdatedAt)
+	}
+}
+
+func TestDeleteProgressTombstone(t *testing.T) {
+	s := newService(t)
+	ctx := context.Background()
+	u, _ := s.CreateUser(ctx, "owner", "pass1234", "", RoleAdmin)
+
+	s.SaveProgress(ctx, u.ID, 1, Progress{Chapter: 4, Overall: 0.3})
+	list, err := s.ListProgress(ctx, u.ID, 10)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("list before delete: %d %v", len(list), err)
+	}
+	if err := s.DeleteProgress(ctx, u.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetProgress(ctx, u.ID, 1); !errors.Is(err, ErrNotFound) {
+		t.Errorf("cleared progress still readable: %v", err)
+	}
+	if list, err = s.ListProgress(ctx, u.ID, 10); err != nil || len(list) != 0 {
+		t.Errorf("cleared book still on the shelf: %v %v", list, err)
+	}
+
+	// An older copy of the progress must not come back through sync.
+	old := &SyncState{Progress: []ProgressState{{
+		BookID: 1, Chapter: 4, Overall: 0.3, UpdatedAt: "2000-01-01 00:00:00",
+	}}}
+	if err := s.MergeState(ctx, u.ID, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetProgress(ctx, u.ID, 1); !errors.Is(err, ErrNotFound) {
+		t.Error("older progress resurrected the cleared book")
+	}
+
+	// A newer live position (started reading again) wins over the tombstone.
+	newer := &SyncState{Progress: []ProgressState{{
+		BookID: 1, Chapter: 1, Overall: 0.05, UpdatedAt: "2099-01-01 00:00:00",
+	}}}
+	if err := s.MergeState(ctx, u.ID, newer); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.GetProgress(ctx, u.ID, 1)
+	if err != nil || p.Chapter != 1 {
+		t.Errorf("resume after reset: %+v %v", p, err)
+	}
+
+	state, _ := s.ExportState(ctx, u.ID)
+	if len(state.Progress) != 1 || state.Progress[0].Cleared {
+		t.Errorf("export after resume: %+v", state.Progress)
 	}
 }

@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { t } from "../i18n";
 import BookCard from "./BookCard";
 
 const book = {
@@ -42,6 +43,13 @@ describe("BookCard", () => {
     fireEvent.error(document.querySelector(".book-card__cover img"));
     expect(document.querySelector(".book-card__cover img")).toBeNull();
     expect(screen.getByText("ВО")).toBeInTheDocument();
+  });
+
+  it("can forget a book from Reading now without following the cover link", () => {
+    const onForget = vi.fn();
+    render(<MemoryRouter><BookCard book={{ ...book, ReadingProgress: 0.2 }} onForget={onForget} /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: t("shelf.forget") }));
+    expect(onForget).toHaveBeenCalledOnce();
   });
 
   it("draws the reading progress bar", () => {

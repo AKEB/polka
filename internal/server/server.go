@@ -175,6 +175,7 @@ func New(cfg *config.Config, log *slog.Logger, st *store.Store, lib *library.Lib
 		mux.HandleFunc("GET /api/v1/read/{id}/img/{imgId}", s.protected(s.handleReadImage))
 		mux.HandleFunc("GET /api/v1/read/{id}/progress", s.protected(s.handleReadProgress))
 		mux.HandleFunc("POST /api/v1/read/{id}/progress", s.protected(s.handleReadProgress))
+		mux.HandleFunc("POST /api/v1/read/{id}/progress/delete", s.protected(s.handleClearProgress))
 
 		// Frontend v2 contract: main/getBooks/*
 		mux.HandleFunc("GET /main/getBooks/getConfig", s.protected(s.handleGetConfig))

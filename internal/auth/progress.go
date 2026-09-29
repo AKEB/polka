@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS reading_progress (
 	position   REAL NOT NULL DEFAULT 0,
 	overall    REAL NOT NULL DEFAULT 0,
 	locator    TEXT NOT NULL DEFAULT '',
+	cleared    INTEGER NOT NULL DEFAULT 0,
 	updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 	PRIMARY KEY (user_id, book_id)
 ) WITHOUT ROWID;
@@ -28,6 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_progress_updated ON reading_progress (user_id, up
 func migrateProgress(db *sql.DB) {
 	db.Exec(`ALTER TABLE reading_progress ADD COLUMN overall REAL NOT NULL DEFAULT 0`)
 	db.Exec(`ALTER TABLE reading_progress ADD COLUMN locator TEXT NOT NULL DEFAULT ''`)
+	db.Exec(`ALTER TABLE reading_progress ADD COLUMN cleared INTEGER NOT NULL DEFAULT 0`)
 }
 
 type Progress struct {
@@ -48,7 +50,8 @@ func (s *Service) SaveProgress(ctx context.Context, userID, bookID int64, p Prog
 		VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))
 		ON CONFLICT (user_id, book_id) DO UPDATE
 		SET chapter = excluded.chapter, position = excluded.position,
-		    overall = excluded.overall, locator = excluded.locator, updated_at = excluded.updated_at`,
+		    overall = excluded.overall, locator = excluded.locator,
+		    cleared = 0, updated_at = excluded.updated_at`,
 		userID, bookID, p.Chapter, p.Position, p.Overall, p.Locator)
 	return err
 }
@@ -56,7 +59,8 @@ func (s *Service) SaveProgress(ctx context.Context, userID, bookID int64, p Prog
 func (s *Service) GetProgress(ctx context.Context, userID, bookID int64) (Progress, error) {
 	p := Progress{BookID: bookID}
 	err := s.db.QueryRowContext(ctx,
-		`SELECT chapter, position, overall, locator FROM reading_progress WHERE user_id = ? AND book_id = ?`,
+		`SELECT chapter, position, overall, locator FROM reading_progress
+		 WHERE user_id = ? AND book_id = ? AND cleared = 0`,
 		userID, bookID).Scan(&p.Chapter, &p.Position, &p.Overall, &p.Locator)
 	if errors.Is(err, sql.ErrNoRows) {
 		return p, ErrNotFound
@@ -69,7 +73,7 @@ func (s *Service) GetProgress(ctx context.Context, userID, bookID int64) (Progre
 func (s *Service) ListProgress(ctx context.Context, userID int64, limit int) ([]Progress, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT book_id, chapter, position, overall FROM reading_progress
-		WHERE user_id = ? AND overall < 0.98
+		WHERE user_id = ? AND cleared = 0 AND overall < 0.98
 		ORDER BY updated_at DESC LIMIT ?`, userID, limit)
 	if err != nil {
 		return nil, err
@@ -85,4 +89,16 @@ func (s *Service) ListProgress(ctx context.Context, userID int64, limit int) ([]
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// DeleteProgress forgets the reading position so the book leaves
+// "Reading now". The row is kept as a tombstone (cleared=1) so a
+// desktop client with an older copy cannot resurrect it on sync.
+func (s *Service) DeleteProgress(ctx context.Context, userID, bookID int64) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE reading_progress
+		SET chapter = 0, position = 0, overall = 0, locator = '', cleared = 1,
+		    updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
+		WHERE user_id = ? AND book_id = ?`, userID, bookID)
+	return err
 }

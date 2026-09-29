@@ -13,6 +13,7 @@ type ProgressState struct {
 	Position  float64 `json:"position"`
 	Overall   float64 `json:"overall"`
 	Locator   string  `json:"locator"`
+	Cleared   bool    `json:"cleared,omitempty"`
 	UpdatedAt string  `json:"updatedAt"` // UTC, SQLite datetime format
 }
 
@@ -44,17 +45,19 @@ func (s *Service) ExportState(ctx context.Context, userID int64) (*SyncState, er
 	state := &SyncState{}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT book_id, chapter, position, overall, locator, updated_at
+		SELECT book_id, chapter, position, overall, locator, cleared, updated_at
 		FROM reading_progress WHERE user_id = ?`, userID)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		var p ProgressState
-		if err := rows.Scan(&p.BookID, &p.Chapter, &p.Position, &p.Overall, &p.Locator, &p.UpdatedAt); err != nil {
+		var cleared int
+		if err := rows.Scan(&p.BookID, &p.Chapter, &p.Position, &p.Overall, &p.Locator, &cleared, &p.UpdatedAt); err != nil {
 			rows.Close()
 			return nil, err
 		}
+		p.Cleared = cleared != 0
 		state.Progress = append(state.Progress, p)
 	}
 	rows.Close()
@@ -112,15 +115,19 @@ func (s *Service) ExportState(ctx context.Context, userID int64) (*SyncState, er
 // by updated_at, lists — union (create missing ones, add books).
 func (s *Service) MergeState(ctx context.Context, userID int64, in *SyncState) error {
 	for _, p := range in.Progress {
+		cleared := 0
+		if p.Cleared {
+			cleared = 1
+		}
 		if _, err := s.db.ExecContext(ctx, `
-			INSERT INTO reading_progress (user_id, book_id, chapter, position, overall, locator, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO reading_progress (user_id, book_id, chapter, position, overall, locator, cleared, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (user_id, book_id) DO UPDATE SET
 				chapter = excluded.chapter, position = excluded.position,
 				overall = excluded.overall, locator = excluded.locator,
-				updated_at = excluded.updated_at
+				cleared = excluded.cleared, updated_at = excluded.updated_at
 			WHERE excluded.updated_at > reading_progress.updated_at`,
-			userID, p.BookID, p.Chapter, p.Position, p.Overall, p.Locator, p.UpdatedAt); err != nil {
+			userID, p.BookID, p.Chapter, p.Position, p.Overall, p.Locator, cleared, p.UpdatedAt); err != nil {
 			return err
 		}
 	}

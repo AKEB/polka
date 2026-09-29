@@ -8,7 +8,7 @@ import { fetchBookForm, fetchExternalEnrichment, fetchSimilarBooks } from "../ap
 import Shelf from "../components/Shelf";
 import BookEditForm from "../components/BookEditForm";
 import { deleteBook } from "../api/manage";
-import { fetchProgress } from "../api/reader";
+import { clearProgress, fetchProgress } from "../api/reader";
 import { rateBook } from "../api/ratings";
 import { toggleWishlist } from "../api/lists";
 import { fetchReaderEmail, setReaderEmail, sendBook } from "../api/send";
@@ -60,6 +60,13 @@ const BookPage = ({ user, sync }) => {
     deleteBook(bookId)
       .then(() => navigate("/", { replace: true }))
       .catch(() => alert(t("book.deleteFail")));
+  };
+
+  const resetProgress = () => {
+    if (!confirm(t("book.resetProgress.confirm"))) return;
+    clearProgress(bookId)
+      .then(() => setReadProgress(0))
+      .catch(() => alert(t("book.resetProgress.fail")));
   };
 
   const [data, setData] = useState(null);
@@ -445,6 +452,11 @@ const BookPage = ({ user, sync }) => {
                   ? t("book.continue", { p: Math.round(readProgress * 100) })
                   : t("book.read")}
               </Link>
+            )}
+            {readProgress > 0 && (
+              <button type="button" className="btn btn-ghost" onClick={resetProgress}>
+                {t("book.resetProgress")}
+              </button>
             )}
             <a className={`btn ${Ext === ".fb2" || Ext === ".pdf" ? "btn-ghost" : "btn-primary"}`} href={api.fb2Url(BookID)}>
               {t("book.download", { ext: Ext || ".fb2" })}

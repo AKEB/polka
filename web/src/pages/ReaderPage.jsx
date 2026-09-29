@@ -1,7 +1,8 @@
 import { t } from "../i18n";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  clearProgress,
   fetchChapter,
   fetchProgress,
   fetchReaderPrefs,
@@ -38,6 +39,7 @@ const chapterLabel = (meta, index) =>
 
 const ReaderPage = () => {
   const { bookId } = useParams();
+  const navigate = useNavigate();
 
   const [meta, setMeta] = useState(null);
   const [loaded, setLoaded] = useState([]); // loaded chapters, in order
@@ -411,6 +413,20 @@ const ReaderPage = () => {
               </button>
             </div>
           )}
+          <div className="reader__settings-group">
+            <button
+              type="button"
+              onClick={() => {
+                if (!confirm(t("book.resetProgress.confirm"))) return;
+                clearTimeout(saveTimer.current);
+                clearProgress(bookId)
+                  .then(() => navigate(`/book/${bookId}`, { replace: true }))
+                  .catch(() => alert(t("book.resetProgress.fail")));
+              }}
+            >
+              {t("reader.reset")}
+            </button>
+          </div>
           <p className="reader__settings-hint">{t("reader.immersiveHint")}</p>
         </div>
       )}

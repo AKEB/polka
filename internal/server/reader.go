@@ -242,3 +242,22 @@ func (s *Server) handleReadProgress(w http.ResponseWriter, r *http.Request) {
 		"progress": p.Overall, "locator": p.Locator,
 	})
 }
+
+// POST /api/v1/read/{id}/progress/delete — drop the book from "Reading now".
+func (s *Server) handleClearProgress(w http.ResponseWriter, r *http.Request) {
+	bookID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	u := s.currentUser(r)
+	if u == nil {
+		writeJSON(w, map[string]any{"ok": true, "stored": false})
+		return
+	}
+	if err := s.users.DeleteProgress(r.Context(), u.ID, bookID); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}

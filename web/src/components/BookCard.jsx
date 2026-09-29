@@ -5,7 +5,7 @@ import api from "../api/api";
 import RatingStars from "./RatingStars";
 import "./BookCard.css";
 
-const BookCard = ({ book, size = "md" }) => {
+const BookCard = ({ book, size = "md", onForget }) => {
   const [coverFailed, setCoverFailed] = useState(false);
 
   if (!book) return null;
@@ -20,35 +20,48 @@ const BookCard = ({ book, size = "md" }) => {
 
   return (
     <article className={`book-card book-card--${size}`}>
-      <Link to={`/book/${BookID}`} className="book-card__cover-link" aria-label={Title}>
-        <div className="book-card__cover">
-          {coverFailed ? (
-            <div className="book-card__cover-fallback">
-              <span>{initials || "?"}</span>
-            </div>
-          ) : (
-            <img
-              src={api.coverUrl(BookID)}
-              alt=""
-              loading="lazy"
-              onError={() => setCoverFailed(true)}
-            />
-          )}
-          {LibRate > 0 && (
-            <div className="book-card__rating-badge">
-              <RatingStars value={LibRate} size="sm" showNumeric={false} />
-            </div>
-          )}
-          {typeof ReadingProgress === "number" && (
-            <div className="book-card__progress" title={`${Math.round(ReadingProgress * 100)}%`}>
-              <div
-                className="book-card__progress-fill"
-                style={{ width: `${Math.max(2, Math.round(ReadingProgress * 100))}%` }}
+      <div className="book-card__cover-wrap">
+        <Link to={`/book/${BookID}`} className="book-card__cover-link" aria-label={Title}>
+          <div className="book-card__cover">
+            {coverFailed ? (
+              <div className="book-card__cover-fallback">
+                <span>{initials || "?"}</span>
+              </div>
+            ) : (
+              <img
+                src={api.coverUrl(BookID)}
+                alt=""
+                loading="lazy"
+                onError={() => setCoverFailed(true)}
               />
-            </div>
-          )}
-        </div>
-      </Link>
+            )}
+            {LibRate > 0 && (
+              <div className="book-card__rating-badge">
+                <RatingStars value={LibRate} size="sm" showNumeric={false} />
+              </div>
+            )}
+            {typeof ReadingProgress === "number" && (
+              <div className="book-card__progress" title={`${Math.round(ReadingProgress * 100)}%`}>
+                <div
+                  className="book-card__progress-fill"
+                  style={{ width: `${Math.max(2, Math.round(ReadingProgress * 100))}%` }}
+                />
+              </div>
+            )}
+          </div>
+        </Link>
+        {onForget && (
+          <button
+            type="button"
+            className="book-card__forget"
+            title={t("shelf.forget")}
+            aria-label={t("shelf.forget")}
+            onClick={() => onForget(book)}
+          >
+            ×
+          </button>
+        )}
+      </div>
 
       <div className="book-card__meta">
         <Link to={`/book/${BookID}`} className="book-card__title" title={Title}>

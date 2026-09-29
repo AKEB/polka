@@ -194,6 +194,7 @@ func TestRouteAccess(t *testing.T) {
 		{"POST", "/api/v1/lists/1/delete", ""},
 		{"POST", "/api/v1/me/reader-email", `{"email":"a@b.c"}`},
 		{"POST", "/api/v1/read/" + id + "/progress", `{"chapter":0}`},
+		{"POST", "/api/v1/read/" + id + "/progress/delete", ""},
 		{"POST", "/api/v1/sync/state", `{}`},
 	}
 	adminRoutes := []route{

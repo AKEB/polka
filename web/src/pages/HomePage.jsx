@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import Shelf from "../components/Shelf";
 import LangFilter from "../components/LangFilter";
 import { fetchHomeShelves } from "../api/fetchBooks";
+import { clearProgress } from "../api/reader";
 import "./HomePage.css";
 
 const SHELF_TITLES = () => ({
@@ -42,6 +43,21 @@ const HomePage = ({ config, filterLang, onFilterLang }) => {
       cancelled = true;
     };
   }, [filterLang]);
+
+  const forgetReading = (book) => {
+    if (!confirm(t("book.resetProgress.confirm"))) return;
+    clearProgress(book.BookID)
+      .then(() => {
+        setShelves((prev) =>
+          prev
+            .map((s) =>
+              s.id !== "reading" ? s : { ...s, books: (s.books ?? []).filter((b) => b.BookID !== book.BookID) }
+            )
+            .filter((s) => s.id !== "reading" || (s.books ?? []).length > 0)
+        );
+      })
+      .catch(() => alert(t("book.resetProgress.fail")));
+  };
 
   return (
     <div className="container homepage">
@@ -114,6 +130,7 @@ const HomePage = ({ config, filterLang, onFilterLang }) => {
               title={meta.title}
               subtitle={meta.subtitle}
               books={shelf.books}
+              onForgetBook={shelf.id === "reading" ? forgetReading : undefined}
               onSeeAll={
                 shelf.id === "wishlist"
                   ? () => navigate("/lists")
