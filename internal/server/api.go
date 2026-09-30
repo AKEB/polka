@@ -3,6 +3,7 @@ package server
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -623,7 +624,7 @@ func (s *Server) handleBookDownload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", disposition+`; filename="`+f.File+`.`+f.Ext+`"`)
 
 	if strings.EqualFold(f.Ext, "fb2") {
-		data, err := s.lib.AssembledFB2(f.Folder, f.File)
+		data, err := s.bookPayload(r.Context(), f)
 		if err != nil {
 			s.apiError(w, err)
 			return
@@ -656,7 +657,7 @@ func (s *Server) handleBookZip(w http.ResponseWriter, r *http.Request) {
 	if f == nil {
 		return
 	}
-	data, err := s.lib.BookBytes(f.Folder, f.File, f.Ext)
+	data, err := s.bookPayload(r.Context(), f)
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -751,7 +752,7 @@ func convertInfoFromFile(f *store.BookFile) library.ConvertInfo {
 }
 
 func convertInfoFromDetails(d *store.BookDetails) library.ConvertInfo {
-	info := library.ConvertInfo{Title: d.Title}
+	info := library.ConvertInfo{Title: d.Title, Lang: d.Lang}
 	for _, a := range d.Authors {
 		info.Authors = append(info.Authors, library.PersonName{First: a.First, Middle: a.Middle, Last: a.Last})
 	}
@@ -763,6 +764,22 @@ func convertInfoFromDetails(d *store.BookDetails) library.ConvertInfo {
 		info.SeqNum = d.SeqNumber
 	}
 	return info
+}
+
+// bookPayload returns served book bytes with catalog metadata applied (FB2).
+func (s *Server) bookPayload(ctx context.Context, f *store.BookFile) ([]byte, error) {
+	data, err := s.lib.BookBytes(f.Folder, f.File, f.Ext)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.EqualFold(f.Ext, "fb2") {
+		return data, nil
+	}
+	info := convertInfoFromFile(f)
+	if d, err := s.st.BookDetails(ctx, f.ID); err == nil {
+		info = convertInfoFromDetails(d)
+	}
+	return library.ApplyFB2CatalogMeta(data, info), nil
 }
 
 func contentTypeFor(ext string) string {

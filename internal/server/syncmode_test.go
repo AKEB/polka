@@ -300,8 +300,12 @@ func TestSyncModeOfflineAndOnline(t *testing.T) {
 
 	// Files and covers from the cache.
 	code, data, hdr := statusOf(t, "GET", client.URL+"/Images/fb2/"+idStr, "")
-	if code != 200 || string(data) != testFB2 || !strings.HasPrefix(hdr.Get("Content-Disposition"), "attachment") {
-		t.Errorf("cached download: %d %q %q", code, hdr.Get("Content-Disposition"), data[:20])
+	if code != 200 || !strings.Contains(string(data), "Война и мир") || !strings.HasPrefix(hdr.Get("Content-Disposition"), "attachment") {
+		snippet := string(data)
+		if len(snippet) > 40 {
+			snippet = snippet[:40]
+		}
+		t.Errorf("cached download: %d %q %q", code, hdr.Get("Content-Disposition"), snippet)
 	}
 	if _, _, hdr = statusOf(t, "GET", client.URL+"/Images/fb2/"+idStr+"?inline=1", ""); !strings.HasPrefix(hdr.Get("Content-Disposition"), "inline") {
 		t.Errorf("inline download: %q", hdr.Get("Content-Disposition"))

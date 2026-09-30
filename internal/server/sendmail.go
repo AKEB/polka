@@ -100,7 +100,7 @@ func (s *Server) handleSendBook(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, err)
 		return
 	}
-	data, err := s.lib.BookBytes(f.Folder, f.File, f.Ext)
+	data, err := s.bookPayload(r.Context(), f)
 	if err != nil {
 		s.apiError(w, err)
 		return

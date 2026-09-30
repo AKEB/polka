@@ -366,7 +366,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	defer zw.Close()
 	used := map[string]int{}
 	for _, f := range files {
-		data, err := s.lib.BookBytes(f.Folder, f.File, f.Ext)
+		data, err := s.bookPayload(r.Context(), &f)
 		if err != nil {
 			s.log.Warn("export: skip missing", "book", f.ID, "error", err)
 			continue
@@ -528,10 +528,25 @@ func (s *Server) runImport(inpxPath string, replace bool, cleanup bool) {
 
 	if replace {
 		setPhase("clearing", 0)
+		oldIDs, err := s.st.BookIdentityMaps(ctx)
+		if err != nil {
+			finish(store.ImportStats{}, err)
+			return
+		}
 		if err := s.st.Clear(ctx); err != nil {
 			finish(store.ImportStats{}, err)
 			return
 		}
+		stats, err := importer.ImportInpx(ctx, s.log, s.st, inpxPath, setPhase)
+		if err != nil {
+			finish(stats, err)
+			return
+		}
+		s.afterReplaceImport(ctx, oldIDs)
+		finish(stats, nil)
+		s.warnIfArchivesMissing(ctx)
+		s.rematchCollections(ctx)
+		return
 	}
 
 	stats, err := importer.ImportInpx(ctx, s.log, s.st, inpxPath, setPhase)
@@ -539,6 +554,30 @@ func (s *Server) runImport(inpxPath string, replace bool, cleanup bool) {
 	if err == nil {
 		s.warnIfArchivesMissing(ctx)
 		s.rematchCollections(ctx)
+	}
+}
+
+// afterReplaceImport remaps personal book_id references and re-applies
+// admin metadata corrections that survived Clear().
+func (s *Server) afterReplaceImport(ctx context.Context, old store.IdentityMaps) {
+	neu, err := s.st.BookIdentityMaps(ctx)
+	if err != nil {
+		s.log.Error("identity map after import", "error", err)
+		return
+	}
+	mapping := store.RemapBookIDs(old, neu)
+	if s.users != nil && len(mapping) > 0 {
+		n, err := s.users.RemapBookIDs(ctx, mapping)
+		if err != nil {
+			s.log.Error("remap user book ids", "error", err)
+		} else {
+			s.log.Info("remapped user book references", "books", len(mapping), "rows", n)
+		}
+	}
+	if n, err := s.st.ApplyBookEdits(ctx); err != nil {
+		s.log.Error("apply book edits", "error", err)
+	} else if n > 0 {
+		s.log.Info("reapplied metadata edits", "books", n)
 	}
 }
 

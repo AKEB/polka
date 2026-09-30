@@ -140,8 +140,10 @@ usual Flibusta layout, e.g. `f.fb2-…​.7z`) — Polka reads them directly, no
 unpacking needed.
 
 Hundreds of thousands of records import in about a minute. Re-importing
-replaces the catalog but **never touches user data** — accounts, progress,
-ratings and lists live in a separate database and survive re-imports.
+replaces the catalog but **keeps user data and metadata edits**: accounts,
+progress, ratings and lists live in a separate database and are rematched by
+stable archive paths (`folder`/`file`); admin title/author corrections are
+re-applied after import and embedded into FB2/EPUB downloads.
 
 ## The desktop apps
 

@@ -1,7 +1,7 @@
 package store
 
 // The schema version is stored in PRAGMA user_version.
-const schemaVersion = 5
+const schemaVersion = 6
 
 // v5: language filter on catalog listings (lang is already on books).
 const schemaV5 = `
@@ -113,6 +113,21 @@ CREATE TABLE book_digests (
 	book_id INTEGER NOT NULL
 ) WITHOUT ROWID;
 
+-- Admin metadata corrections keyed by stable folder/file/ext. Survives Clear().
+CREATE TABLE book_edits (
+	file_key     TEXT PRIMARY KEY,
+	lib_id       TEXT NOT NULL DEFAULT '',
+	title        TEXT NOT NULL,
+	series       TEXT NOT NULL DEFAULT '',
+	series_num   INTEGER NOT NULL DEFAULT 0,
+	year         INTEGER NOT NULL DEFAULT 0,
+	lang         TEXT NOT NULL DEFAULT '',
+	isbn         TEXT NOT NULL DEFAULT '',
+	authors_json TEXT NOT NULL DEFAULT '[]',
+	genres_json  TEXT NOT NULL DEFAULT '[]',
+	updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE VIRTUAL TABLE book_search USING fts5(
 	title,
 	authors,
@@ -148,4 +163,6 @@ var schemaIndexes = []string{
 	`CREATE INDEX IF NOT EXISTS idx_books_content_hash ON books (content_hash) WHERE content_hash != ''`,
 	`CREATE INDEX IF NOT EXISTS idx_books_isbn ON books (isbn) WHERE isbn != ''`,
 	`CREATE INDEX IF NOT EXISTS idx_books_lang ON books (lang, id) WHERE deleted = 0`,
+	`CREATE INDEX IF NOT EXISTS idx_books_lib_id ON books (lib_id) WHERE lib_id != ''`,
+	`CREATE INDEX IF NOT EXISTS idx_book_edits_lib ON book_edits (lib_id) WHERE lib_id != ''`,
 }

@@ -147,7 +147,12 @@ type BookUpdate struct {
 }
 
 // UpdateBook replaces a book's catalog metadata and rebuilds its FTS row.
+// The correction is also persisted in book_edits so it survives re-import.
 func (s *Store) UpdateBook(ctx context.Context, bookID int64, u BookUpdate) error {
+	return s.updateBook(ctx, bookID, u, true)
+}
+
+func (s *Store) updateBook(ctx context.Context, bookID int64, u BookUpdate, persistEdit bool) error {
 	u.Title = strings.TrimSpace(u.Title)
 	if u.Title == "" {
 		return fmt.Errorf("title is required")
@@ -156,6 +161,15 @@ func (s *Store) UpdateBook(ctx context.Context, bookID int64, u BookUpdate) erro
 	u.Lang = NormalizeLang(u.Lang)
 	if u.Lang == LangUnknown {
 		u.Lang = ""
+	}
+
+	fileKey, libID := "", ""
+	if persistEdit {
+		var err error
+		fileKey, libID, err = s.BookFileKey(ctx, bookID)
+		if err != nil {
+			return err
+		}
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -255,7 +269,13 @@ func (s *Store) UpdateBook(ctx context.Context, bookID int64, u BookUpdate) erro
 		bookID, u.Title, strings.Join(authorNames, " "), u.Series); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if persistEdit {
+		return s.saveBookEdit(ctx, fileKey, libID, u)
+	}
+	return nil
 }
 
 // SetBookDeleted hides or restores a book, keeping the FTS index in sync.
@@ -286,7 +306,7 @@ func (s *Store) SetBookDeleted(ctx context.Context, bookID int64, deleted bool) 
 }
 
 // Clear empties the collection (for re-import on a running server).
-// The user database and meta are not touched.
+// The user database, meta, and book_edits (admin metadata corrections) are kept.
 func (s *Store) Clear(ctx context.Context) error {
 	tables := []string{
 		"book_search", "authors_search", "series_search",

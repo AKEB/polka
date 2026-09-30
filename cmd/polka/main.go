@@ -230,22 +230,54 @@ func runImport(log *slog.Logger, args []string) error {
 		return errors.New("укажите inpx-файл: polka import --inpx <файл.inpx>")
 	}
 
-	if replace {
-		for _, suffix := range []string{"", "-wal", "-shm"} {
-			os.Remove(cfg.DBPath() + suffix)
-		}
-	}
-
 	st, err := store.Open(cfg.DBPath())
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
 	defer st.Close()
 
-	stats, err := importer.ImportInpx(context.Background(), log, st, inpxPath, nil)
+	ctx := context.Background()
+	var oldIDs store.IdentityMaps
+	if replace {
+		oldIDs, err = st.BookIdentityMaps(ctx)
+		if err != nil {
+			return fmt.Errorf("snapshot identities: %w", err)
+		}
+		if err := st.Clear(ctx); err != nil {
+			return fmt.Errorf("clear catalog: %w", err)
+		}
+	}
+
+	stats, err := importer.ImportInpx(ctx, log, st, inpxPath, nil)
 	if err != nil {
 		return err
 	}
+
+	if replace {
+		neu, err := st.BookIdentityMaps(ctx)
+		if err != nil {
+			log.Error("identity map after import", "error", err)
+		} else if mapping := store.RemapBookIDs(oldIDs, neu); len(mapping) > 0 {
+			users, uerr := auth.Open(filepath.Join(cfg.DataDir, "users.db"))
+			if uerr != nil {
+				log.Error("open users db for remap", "error", uerr)
+			} else {
+				n, rerr := users.RemapBookIDs(ctx, mapping)
+				users.Close()
+				if rerr != nil {
+					log.Error("remap user book ids", "error", rerr)
+				} else {
+					log.Info("remapped user book references", "books", len(mapping), "rows", n)
+				}
+			}
+		}
+		if n, err := st.ApplyBookEdits(ctx); err != nil {
+			log.Error("apply book edits", "error", err)
+		} else if n > 0 {
+			log.Info("reapplied metadata edits", "books", n)
+		}
+	}
+
 	log.Info("import done",
 		"books", stats.Books, "authors", stats.Authors, "series", stats.Series,
 		"genres", stats.Genres, "duration", stats.Duration.Round(time.Millisecond))

@@ -51,6 +51,9 @@ func Convert(data []byte, from, to string, info ConvertInfo) ([]byte, error) {
 	if !CanConvert(from, to) {
 		return nil, ErrUnsupportedConversion
 	}
+	if from == "fb2" {
+		data = ApplyFB2CatalogMeta(data, info)
+	}
 	if from == to {
 		return data, nil
 	}
@@ -72,17 +75,18 @@ func normExt(ext string) string {
 }
 
 func mergeInfo(file ConvertInfo, catalog ConvertInfo) ConvertInfo {
+	// Catalog (including admin edits) wins over embedded file metadata.
 	out := file
-	if out.Title == "" {
+	if catalog.Title != "" {
 		out.Title = catalog.Title
 	}
-	if len(out.Authors) == 0 {
+	if len(catalog.Authors) > 0 {
 		out.Authors = catalog.Authors
 	}
-	if out.Lang == "" {
+	if catalog.Lang != "" {
 		out.Lang = catalog.Lang
 	}
-	if out.Series == "" {
+	if catalog.Series != "" {
 		out.Series = catalog.Series
 		out.SeqNum = catalog.SeqNum
 	}
