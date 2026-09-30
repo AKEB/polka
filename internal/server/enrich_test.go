@@ -145,8 +145,12 @@ func TestExternalReviewsEndpoint(t *testing.T) {
 	if list == nil {
 		t.Fatalf("expected reviews array, got %v", body)
 	}
-	if len(list) != 0 {
-		t.Fatalf("disabled sources should yield empty reviews, got %d", len(list))
+	// Cold cache returns pending immediately (background fill).
+	if pending, _ := body["pending"].(bool); !pending && len(list) != 0 {
+		t.Fatalf("unexpected body = %v", body)
+	}
+	if len(list) != 0 && body["pending"] == true {
+		t.Fatalf("pending with reviews = %v", body)
 	}
 
 	// Missing params

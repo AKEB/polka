@@ -264,17 +264,33 @@ const BookPage = ({ user, sync }) => {
 
     setReviews(null);
     setReviewsLoading(true);
-    fetchExternalReviews({
-      bookId: data.bookForm.BookID,
-      title: data.bookForm.Title,
-      author,
-    })
-      .then((res) => !cancelled && setReviews(res?.reviews ?? []))
-      .catch(() => !cancelled && setReviews([]))
-      .finally(() => !cancelled && setReviewsLoading(false));
+    let reviewsTimer = 0;
+    const pollReviews = () => {
+      fetchExternalReviews({
+        bookId: data.bookForm.BookID,
+        title: data.bookForm.Title,
+        author,
+      })
+        .then((res) => {
+          if (cancelled) return;
+          setReviews(res?.reviews ?? []);
+          if (res?.pending) {
+            reviewsTimer = window.setTimeout(pollReviews, 1200);
+            return;
+          }
+          setReviewsLoading(false);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setReviews([]);
+          setReviewsLoading(false);
+        });
+    };
+    pollReviews();
 
     return () => {
       cancelled = true;
+      if (reviewsTimer) window.clearTimeout(reviewsTimer);
     };
   }, [data]);
 

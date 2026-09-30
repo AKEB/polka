@@ -62,6 +62,10 @@ type Provider struct {
 	reviews map[string]reviewsEntry
 	backoff map[string]time.Time // source -> do not query until
 
+	reviewsWait map[string]chan struct{} // in-flight review fetches by cache key
+	enrichWait  map[string]chan struct{}
+	similarWait map[string]chan struct{}
+
 	// Base URLs are overridden in tests.
 	LiveLibBase     string
 	GoogleBase      string
@@ -110,50 +114,134 @@ func (p *Provider) persistCache() {
 	os.Rename(tmp, p.cachePath)
 }
 
-// Get returns book enrichment, querying the enabled sources.
-func (p *Provider) Get(ctx context.Context, key, title, author string, enabled map[string]bool) *Enrichment {
+// GetCached returns a fresh enrichment from disk/memory cache without network calls.
+func (p *Provider) GetCached(key string) (*Enrichment, bool) {
 	p.mu.Lock()
-	if e, ok := p.cache[key]; ok {
-		ttl := successTTL
-		if e.Result.Negative {
-			ttl = negativeTTL
-		}
-		if time.Since(e.FetchedAt) < ttl {
-			p.mu.Unlock()
-			return e.Result
-		}
+	defer p.mu.Unlock()
+	e, ok := p.cache[key]
+	if !ok {
+		return nil, false
+	}
+	ttl := successTTL
+	if e.Result != nil && e.Result.Negative {
+		ttl = negativeTTL
+	}
+	if time.Since(e.FetchedAt) >= ttl {
+		return nil, false
+	}
+	return e.Result, true
+}
+
+// WarmGet fills enrichment in the background.
+func (p *Provider) WarmGet(key, title, author string, enabled map[string]bool) {
+	if _, ok := p.GetCached(key); ok {
+		return
+	}
+	p.mu.Lock()
+	if p.enrichWait == nil {
+		p.enrichWait = map[string]chan struct{}{}
+	}
+	if _, inflight := p.enrichWait[key]; inflight {
+		p.mu.Unlock()
+		return
 	}
 	p.mu.Unlock()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		p.Get(ctx, key, title, author, enabled)
+	}()
+}
 
-	res := &Enrichment{}
-	transientOnly := true
+// Get returns book enrichment, querying the enabled sources.
+func (p *Provider) Get(ctx context.Context, key, title, author string, enabled map[string]bool) *Enrichment {
+	if cached, ok := p.GetCached(key); ok {
+		return cached
+	}
+
+	p.mu.Lock()
+	if p.enrichWait == nil {
+		p.enrichWait = map[string]chan struct{}{}
+	}
+	if wait, ok := p.enrichWait[key]; ok {
+		p.mu.Unlock()
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return &Enrichment{Negative: true}
+		}
+		if cached, ok := p.GetCached(key); ok {
+			return cached
+		}
+		return &Enrichment{Negative: true}
+	}
+	done := make(chan struct{})
+	p.enrichWait[key] = done
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		delete(p.enrichWait, key)
+		close(done)
+		p.mu.Unlock()
+	}()
+
+	type srcOut struct {
+		source string
+		r      *Result
+		err    error
+	}
+	var jobs []string
 	for _, source := range Sources {
 		if !enabled[source] {
 			continue
 		}
 		p.mu.Lock()
-		wait := p.backoff[source]
+		waitUntil := p.backoff[source]
 		p.mu.Unlock()
-		if time.Now().Before(wait) {
+		if time.Now().Before(waitUntil) {
 			continue
 		}
+		jobs = append(jobs, source)
+	}
 
-		r, err := p.fetch(ctx, source, title, author)
-		if err != nil {
-			// Network/transient error: short back-off, not cached.
+	outs := make([]srcOut, len(jobs))
+	var wg sync.WaitGroup
+	for i, source := range jobs {
+		wg.Add(1)
+		go func(i int, source string) {
+			defer wg.Done()
+			r, err := p.fetch(ctx, source, title, author)
+			outs[i] = srcOut{source: source, r: r, err: err}
+		}(i, source)
+	}
+	wg.Wait()
+
+	res := &Enrichment{}
+	transientOnly := true
+	// Keep Sources order for primary priority.
+	bySource := map[string]srcOut{}
+	for _, o := range outs {
+		bySource[o.source] = o
+	}
+	for _, source := range Sources {
+		o, ok := bySource[source]
+		if !ok {
+			continue
+		}
+		if o.err != nil {
 			p.mu.Lock()
 			p.backoff[source] = time.Now().Add(transientTTL)
 			p.mu.Unlock()
 			continue
 		}
 		transientOnly = false
-		if r != nil {
-			res.Sources = append(res.Sources, *r)
+		if o.r != nil {
+			res.Sources = append(res.Sources, *o.r)
 			if res.Primary == nil {
-				res.Primary = r
+				res.Primary = o.r
 			}
 			if res.CoverURL == "" {
-				res.CoverURL = r.CoverURL
+				res.CoverURL = o.r.CoverURL
 			}
 		}
 	}

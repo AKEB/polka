@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,42 +36,123 @@ type similarEntry struct {
 	FetchedAt time.Time     `json:"fetchedAt"`
 }
 
-// Similar returns similar books from the enabled sources (cached).
-func (p *Provider) Similar(ctx context.Context, key, title, author string, cfg SimilarConfig) []SimilarBook {
+// SimilarCached returns a fresh similar-books cache hit without network calls.
+func (p *Provider) SimilarCached(key string) ([]SimilarBook, bool) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.similar == nil {
 		p.loadSimilarCache()
 	}
-	if e, ok := p.similar[key]; ok && time.Since(e.FetchedAt) < successTTL {
+	e, ok := p.similar[key]
+	if !ok || time.Since(e.FetchedAt) >= successTTL {
+		return nil, false
+	}
+	out := make([]SimilarBook, len(e.Results))
+	copy(out, e.Results)
+	return out, true
+}
+
+// WarmSimilar fills the similar-books cache in the background.
+func (p *Provider) WarmSimilar(key, title, author string, cfg SimilarConfig) {
+	if _, ok := p.SimilarCached(key); ok {
+		return
+	}
+	p.mu.Lock()
+	if p.similarWait == nil {
+		p.similarWait = map[string]chan struct{}{}
+	}
+	if _, inflight := p.similarWait[key]; inflight {
 		p.mu.Unlock()
-		return e.Results
+		return
 	}
 	p.mu.Unlock()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		p.Similar(ctx, key, title, author, cfg)
+	}()
+}
+
+// Similar returns similar books from the enabled sources (cached).
+func (p *Provider) Similar(ctx context.Context, key, title, author string, cfg SimilarConfig) []SimilarBook {
+	if out, ok := p.SimilarCached(key); ok {
+		return out
+	}
+
+	p.mu.Lock()
+	if p.similarWait == nil {
+		p.similarWait = map[string]chan struct{}{}
+	}
+	if wait, ok := p.similarWait[key]; ok {
+		p.mu.Unlock()
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return nil
+		}
+		if out, ok := p.SimilarCached(key); ok {
+			return out
+		}
+		return nil
+	}
+	done := make(chan struct{})
+	p.similarWait[key] = done
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		delete(p.similarWait, key)
+		close(done)
+		p.mu.Unlock()
+	}()
+
+	type part struct {
+		items []SimilarBook
+		err   error
+		name  string
+	}
+	var jobs []func() part
+	if cfg.FantLab {
+		jobs = append(jobs, func() part {
+			res, err := p.fantlabSimilar(ctx, title, author)
+			return part{items: res, err: err, name: "fantlab similar"}
+		})
+	}
+	if cfg.TasteDive && cfg.TasteDiveKey != "" {
+		jobs = append(jobs, func() part {
+			res, err := p.tastediveSimilar(ctx, title, author, cfg.TasteDiveKey)
+			return part{items: res, err: err, name: "tastedive similar"}
+		})
+	}
+
+	parts := make([]part, len(jobs))
+	var wg sync.WaitGroup
+	for i, job := range jobs {
+		wg.Add(1)
+		go func(i int, job func() part) {
+			defer wg.Done()
+			parts[i] = job()
+		}(i, job)
+	}
+	wg.Wait()
 
 	var out []SimilarBook
 	transient := false
-
-	if cfg.FantLab {
-		if res, err := p.fantlabSimilar(ctx, title, author); err != nil {
+	for _, res := range parts {
+		if res.err != nil {
 			transient = true
-			p.log("fantlab similar", err)
-		} else {
-			out = append(out, res...)
+			p.log(res.name, res.err)
+			continue
 		}
-	}
-	if cfg.TasteDive && cfg.TasteDiveKey != "" {
-		if res, err := p.tastediveSimilar(ctx, title, author, cfg.TasteDiveKey); err != nil {
-			transient = true
-			p.log("tastedive similar", err)
-		} else {
-			out = append(out, res...)
-		}
+		out = append(out, res.items...)
 	}
 
 	if transient && len(out) == 0 {
 		return out // network failures are not cached
 	}
 	p.mu.Lock()
+	if p.similar == nil {
+		p.similar = map[string]similarEntry{}
+	}
 	p.similar[key] = similarEntry{Results: out, FetchedAt: time.Now()}
 	p.persistSimilarCache()
 	p.mu.Unlock()

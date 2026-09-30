@@ -60,7 +60,7 @@ func TestFantLabReviews(t *testing.T) {
 	if !strings.Contains(out[0].Text, "Отличный роман") || strings.Contains(out[0].Text, "<p>") {
 		t.Fatalf("text = %q", out[0].Text)
 	}
-	if out[0].URL != "https://fantlab.ru/response7" {
+	if out[0].URL != "https://fantlab.ru/work42#response7" {
 		t.Fatalf("url = %q", out[0].URL)
 	}
 }

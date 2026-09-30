@@ -81,7 +81,8 @@ func (p *Provider) fantlabReviews(ctx context.Context, title, author string) ([]
 			Author:    item.UserName,
 			Text:      text,
 			Date:      item.Date,
-			URL:       fmt.Sprintf("https://fantlab.ru/response%d", item.ResponseID),
+			// FantLab has no /response{N} pages; the review lives on the work page.
+			URL:       fmt.Sprintf("https://fantlab.ru/work%s#response%d", workID, item.ResponseID),
 			MaxRating: 10,
 		}
 		if item.Mark > 0 {

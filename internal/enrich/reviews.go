@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -20,6 +21,10 @@ const (
 	reviewsPerSource = 3
 	reviewsTotalCap  = 8
 	reviewTextLimit  = 400
+
+	// ReviewsCacheKey prefixes the book id in the reviews disk cache.
+	// Bump when stored URL shape changes so stale entries are ignored.
+	ReviewsCacheKey = "rev2:"
 )
 
 // Review is one external reader/editorial review snippet.
@@ -48,42 +53,134 @@ type reviewsEntry struct {
 	FetchedAt time.Time `json:"fetchedAt"`
 }
 
-// Reviews returns external reviews for a book (cached on disk).
-func (p *Provider) Reviews(ctx context.Context, key, title, author string, cfg ReviewsConfig) []Review {
+// ReviewsCached returns a fresh cached result without contacting sources.
+func (p *Provider) ReviewsCached(key string) ([]Review, bool) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.reviews == nil {
 		p.loadReviewsCache()
 	}
-	if e, ok := p.reviews[key]; ok && time.Since(e.FetchedAt) < successTTL {
-		out := e.Results
+	e, ok := p.reviews[key]
+	if !ok || time.Since(e.FetchedAt) >= successTTL {
+		return nil, false
+	}
+	out := make([]Review, len(e.Results))
+	copy(out, e.Results)
+	return out, true
+}
+
+// WarmReviews fills the cache in the background (no-op if already cached or in flight).
+func (p *Provider) WarmReviews(key, title, author string, cfg ReviewsConfig) {
+	if _, ok := p.ReviewsCached(key); ok {
+		return
+	}
+	p.mu.Lock()
+	if p.reviewsWait == nil {
+		p.reviewsWait = map[string]chan struct{}{}
+	}
+	if _, inflight := p.reviewsWait[key]; inflight {
 		p.mu.Unlock()
-		return out
+		return
 	}
 	p.mu.Unlock()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		p.Reviews(ctx, key, title, author, cfg)
+	}()
+}
 
-	var out []Review
-	transient := false
+// Reviews returns external reviews for a book (cached on disk).
+func (p *Provider) Reviews(ctx context.Context, key, title, author string, cfg ReviewsConfig) []Review {
+	if out, ok := p.ReviewsCached(key); ok {
+		return out
+	}
 
-	try := func(source string, enabled bool, fetch func() ([]Review, error)) {
-		if !enabled || len(out) >= reviewsTotalCap {
+	// Deduplicate concurrent fetches for the same book.
+	p.mu.Lock()
+	if p.reviewsWait == nil {
+		p.reviewsWait = map[string]chan struct{}{}
+	}
+	if wait, ok := p.reviewsWait[key]; ok {
+		p.mu.Unlock()
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return nil
+		}
+		if out, ok := p.ReviewsCached(key); ok {
+			return out
+		}
+		return nil
+	}
+	done := make(chan struct{})
+	p.reviewsWait[key] = done
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		delete(p.reviewsWait, key)
+		close(done)
+		p.mu.Unlock()
+	}()
+
+	type fetched struct {
+		source string
+		items  []Review
+		err    error
+	}
+	var jobs []func() fetched
+	add := func(source string, enabled bool, fetch func() ([]Review, error)) {
+		if !enabled {
 			return
 		}
 		p.mu.Lock()
-		wait := p.backoff["reviews:"+source]
+		waitUntil := p.backoff["reviews:"+source]
 		p.mu.Unlock()
-		if time.Now().Before(wait) {
+		if time.Now().Before(waitUntil) {
 			return
 		}
-		res, err := fetch()
-		if err != nil {
+		src := source
+		jobs = append(jobs, func() fetched {
+			items, err := fetch()
+			return fetched{source: src, items: items, err: err}
+		})
+	}
+	add(SourceFantLabReviews, cfg.FantLab, func() ([]Review, error) {
+		return p.fantlabReviews(ctx, title, author)
+	})
+	add(SourceLiveLibReviews, cfg.LiveLib, func() ([]Review, error) {
+		return p.livelibReviews(ctx, title, author)
+	})
+	add(SourceHardcoverReviews, cfg.Hardcover && cfg.HardcoverToken != "", func() ([]Review, error) {
+		return p.hardcoverReviews(ctx, title, author, cfg.HardcoverToken)
+	})
+	add(SourceNYTReviews, cfg.NYT && cfg.NYTKey != "", func() ([]Review, error) {
+		return p.nytReviews(ctx, title, author, cfg.NYTKey)
+	})
+
+	results := make([]fetched, len(jobs))
+	var wg sync.WaitGroup
+	for i, job := range jobs {
+		wg.Add(1)
+		go func(i int, job func() fetched) {
+			defer wg.Done()
+			results[i] = job()
+		}(i, job)
+	}
+	wg.Wait()
+
+	var out []Review
+	transient := false
+	for _, res := range results {
+		if res.err != nil {
 			transient = true
 			p.mu.Lock()
-			p.backoff["reviews:"+source] = time.Now().Add(transientTTL)
+			p.backoff["reviews:"+res.source] = time.Now().Add(transientTTL)
 			p.mu.Unlock()
-			p.log("reviews "+source, err)
-			return
+			p.log("reviews "+res.source, res.err)
+			continue
 		}
-		for _, r := range res {
+		for _, r := range res.items {
 			if len(out) >= reviewsTotalCap {
 				break
 			}
@@ -91,23 +188,13 @@ func (p *Provider) Reviews(ctx context.Context, key, title, author string, cfg R
 		}
 	}
 
-	try(SourceFantLabReviews, cfg.FantLab, func() ([]Review, error) {
-		return p.fantlabReviews(ctx, title, author)
-	})
-	try(SourceLiveLibReviews, cfg.LiveLib, func() ([]Review, error) {
-		return p.livelibReviews(ctx, title, author)
-	})
-	try(SourceHardcoverReviews, cfg.Hardcover && cfg.HardcoverToken != "", func() ([]Review, error) {
-		return p.hardcoverReviews(ctx, title, author, cfg.HardcoverToken)
-	})
-	try(SourceNYTReviews, cfg.NYT && cfg.NYTKey != "", func() ([]Review, error) {
-		return p.nytReviews(ctx, title, author, cfg.NYTKey)
-	})
-
 	if transient && len(out) == 0 {
 		return out
 	}
 	p.mu.Lock()
+	if p.reviews == nil {
+		p.reviews = map[string]reviewsEntry{}
+	}
 	p.reviews[key] = reviewsEntry{Results: out, FetchedAt: time.Now()}
 	p.persistReviewsCache()
 	p.mu.Unlock()
@@ -137,9 +224,9 @@ func (p *Provider) persistReviewsCache() {
 }
 
 var (
-	htmlTagRe      = regexp.MustCompile(`(?is)<[^>]+>`)
+	htmlTagRe       = regexp.MustCompile(`(?is)<[^>]+>`)
 	htmlEntitySpace = regexp.MustCompile(`(?i)&nbsp;|&#160;`)
-	wsCollapseRe   = regexp.MustCompile(`\s+`)
+	wsCollapseRe    = regexp.MustCompile(`\s+`)
 )
 
 func stripHTML(s string) string {

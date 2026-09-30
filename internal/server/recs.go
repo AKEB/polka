@@ -129,11 +129,15 @@ func (s *Server) handleGetReviews(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bookId and title are required", http.StatusBadRequest)
 		return
 	}
-	reviews := s.enrich.Reviews(r.Context(), "rev:"+bookID, title, author, s.reviewsConfig(r))
-	if reviews == nil {
-		reviews = []enrich.Review{}
+	key := enrich.ReviewsCacheKey + bookID
+	cfg := s.reviewsConfig(r)
+	if reviews, ok := s.enrich.ReviewsCached(key); ok {
+		writeJSON(w, map[string]any{"reviews": reviews, "pending": false})
+		return
 	}
-	writeJSON(w, map[string]any{"reviews": reviews})
+	// Do not block the book page on external scrapers — warm in background and poll.
+	s.enrich.WarmReviews(key, title, author, cfg)
+	writeJSON(w, map[string]any{"reviews": []enrich.Review{}, "pending": true})
 }
 
 // GET /main/getBooks/getSimilarBooks?bookId&title&author
@@ -177,7 +181,8 @@ func (s *Server) handleGetSimilarBooks(w http.ResponseWriter, r *http.Request) {
 	var externalOnly []map[string]any
 	if title != "" {
 		cfg := s.similarConfig(r)
-		for _, sim := range s.enrich.Similar(r.Context(), "sim:"+strconv.FormatInt(bookID, 10), title, author, cfg) {
+		simKey := "sim:" + strconv.FormatInt(bookID, 10)
+		for _, sim := range s.enrich.Similar(r.Context(), simKey, title, author, cfg) {
 			if b, err := s.st.MatchBook(r.Context(), sim.Title, sim.Author); err == nil {
 				if !seen[b.ID] {
 					seen[b.ID] = true

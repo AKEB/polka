@@ -31,7 +31,13 @@ func (s *Server) handleGetEnrichment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bookId and title are required", http.StatusBadRequest)
 		return
 	}
-	res := s.enrich.Get(r.Context(), bookID, title, author, s.enrichEnabled(r))
+	enabled := s.enrichEnabled(r)
+	if cached, ok := s.enrich.GetCached(bookID); ok {
+		writeJSON(w, cached)
+		return
+	}
+	// Prefer a warm cache from getBookForm; if still cold, fetch now (parallel sources).
+	res := s.enrich.Get(r.Context(), bookID, title, author, enabled)
 	writeJSON(w, res)
 }
 

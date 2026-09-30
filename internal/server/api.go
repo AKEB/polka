@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/vestigiumincaligne/polka/internal/covergen"
+	"github.com/vestigiumincaligne/polka/internal/enrich"
 	"github.com/vestigiumincaligne/polka/internal/genres"
 	"github.com/vestigiumincaligne/polka/internal/langs"
 	"github.com/vestigiumincaligne/polka/internal/library"
@@ -558,7 +559,40 @@ func (s *Server) handleGetBookForm(w http.ResponseWriter, r *http.Request) {
 			s.log.Warn("fb2 meta", "book", d.ID, "error", err)
 		}
 	}
+
+	// Warm external ratings / similar / reviews so the book page does not wait
+	// on cold scrapers for the first paint.
+	s.prefetchBookEnrichment(d)
+
 	writeJSON(w, resp)
+}
+
+// prefetchBookEnrichment kicks off background cache fills for the book page.
+func (s *Server) prefetchBookEnrichment(d *store.BookDetails) {
+	if s.enrich == nil || d == nil || d.Title == "" {
+		return
+	}
+	author := d.AuthorNames
+	if len(d.Authors) > 0 {
+		a := d.Authors[0]
+		parts := []string{a.Last, a.First, a.Middle}
+		var cleaned []string
+		for _, p := range parts {
+			if p != "" {
+				cleaned = append(cleaned, p)
+			}
+		}
+		if len(cleaned) > 0 {
+			author = strings.Join(cleaned, " ")
+		}
+	}
+	bookID := strconv.FormatInt(d.ID, 10)
+	// Synthetic request context for settings defaults.
+	r := &http.Request{}
+	enabled := s.enrichEnabled(r)
+	s.enrich.WarmGet(bookID, d.Title, author, enabled)
+	s.enrich.WarmSimilar("sim:"+bookID, d.Title, author, s.similarConfig(r))
+	s.enrich.WarmReviews(enrich.ReviewsCacheKey+bookID, d.Title, author, s.reviewsConfig(r))
 }
 
 // --- Images/* ---
