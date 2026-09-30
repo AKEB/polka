@@ -107,6 +107,35 @@ func (s *Server) similarConfig(r *http.Request) enrich.SimilarConfig {
 	}
 }
 
+func (s *Server) reviewsConfig(r *http.Request) enrich.ReviewsConfig {
+	ctx := r.Context()
+	return enrich.ReviewsConfig{
+		FantLab:        s.users.GetSetting(ctx, "enrich.reviews_fantlab", "1") == "1",
+		LiveLib:        s.users.GetSetting(ctx, "enrich.reviews_livelib", "1") == "1",
+		Hardcover:      s.users.GetSetting(ctx, "enrich.reviews_hardcover", "0") == "1",
+		HardcoverToken: s.users.GetSetting(ctx, "hardcover_token", ""),
+		NYT:            s.users.GetSetting(ctx, "enrich.reviews_nyt", "0") == "1",
+		NYTKey:         s.users.GetSetting(ctx, "nyt_books_key", ""),
+	}
+}
+
+// GET /main/getBooks/getExternalReviews?bookId&title&author
+func (s *Server) handleGetReviews(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	bookID := q.Get("bookId")
+	title := strings.TrimSpace(strings.ReplaceAll(q.Get("title"), "+", " "))
+	author := strings.TrimSpace(strings.ReplaceAll(q.Get("author"), "+", " "))
+	if bookID == "" || title == "" {
+		http.Error(w, "bookId and title are required", http.StatusBadRequest)
+		return
+	}
+	reviews := s.enrich.Reviews(r.Context(), "rev:"+bookID, title, author, s.reviewsConfig(r))
+	if reviews == nil {
+		reviews = []enrich.Review{}
+	}
+	writeJSON(w, map[string]any{"reviews": reviews})
+}
+
 // GET /main/getBooks/getSimilarBooks?bookId&title&author
 func (s *Server) handleGetSimilarBooks(w http.ResponseWriter, r *http.Request) {
 	bookID, ok := idParam(r, "bookId")

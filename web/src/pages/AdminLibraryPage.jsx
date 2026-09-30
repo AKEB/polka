@@ -98,7 +98,10 @@ const AdminLibraryPage = () => {
   // --- Sources for external ratings and similar books ---
   const [enrichment, setEnrichment] = useState(null);
   const [similar, setSimilar] = useState(null);
+  const [reviews, setReviews] = useState(null);
   const [tastediveKey, setTastediveKey] = useState("");
+  const [hardcoverToken, setHardcoverToken] = useState("");
+  const [nytBooksKey, setNytBooksKey] = useState("");
   const [opdsEnabled, setOpdsEnabled] = useState(true);
   const [opdsCopied, setOpdsCopied] = useState(false);
   const [smtp, setSmtp] = useState(null);
@@ -113,7 +116,10 @@ const AdminLibraryPage = () => {
         setEnrichment(res.enrichment ?? null);
         setColSources(res.collectionSources ?? []);
         setSimilar(res.similar ?? null);
+        setReviews(res.reviews ?? null);
         setTastediveKey(res.tastediveKey ?? "");
+        setHardcoverToken(res.hardcoverToken ?? "");
+        setNytBooksKey(res.nytBooksKey ?? "");
         setOpdsEnabled(res.opdsEnabled !== false);
         setSmtp(res.smtp ?? { security: "starttls", port: 587 });
         setLibrary(res.library ?? null);
@@ -144,6 +150,15 @@ const AdminLibraryPage = () => {
     });
   };
 
+  const toggleReviews = (id) => {
+    const next = { ...reviews, [id]: !reviews[id] };
+    setReviews(next);
+    saveSettings({ reviews: next }).catch(() => {
+      setReviews(reviews);
+      alert(t("admin.sources.saveFail"));
+    });
+  };
+
   const saveTastediveKey = () => {
     saveSettings({ tastediveKey })
       .then((res) => {
@@ -151,6 +166,26 @@ const AdminLibraryPage = () => {
         alert(t("admin.tastedive.saved"));
       })
       .catch(() => alert(t("admin.tastedive.saveFail")));
+  };
+
+  const saveHardcoverToken = () => {
+    saveSettings({ hardcoverToken })
+      .then((res) => {
+        setReviews(res.reviews ?? reviews);
+        setHardcoverToken(res.hardcoverToken ?? hardcoverToken);
+        alert(t("admin.hardcover.saved"));
+      })
+      .catch(() => alert(t("admin.hardcover.saveFail")));
+  };
+
+  const saveNytBooksKey = () => {
+    saveSettings({ nytBooksKey })
+      .then((res) => {
+        setReviews(res.reviews ?? reviews);
+        setNytBooksKey(res.nytBooksKey ?? nytBooksKey);
+        alert(t("admin.nyt.saved"));
+      })
+      .catch(() => alert(t("admin.nyt.saveFail")));
   };
 
   const opdsUrl = `${window.location.origin}/opds`;
@@ -555,6 +590,67 @@ const AdminLibraryPage = () => {
           />
           <button type="button" className="btn btn-primary" onClick={saveTastediveKey}>
             {t("admin.tastedive.save")}
+          </button>
+        </div>
+      </section>
+
+      <section className="library-admin__section">
+        <h2>{t("admin.reviews")}</h2>
+        <p className="library-admin__hint">{t("admin.reviews.hint")}</p>
+        {reviews && (
+          <ul className="library-admin__sources">
+            <li>
+              <label className="library-admin__source">
+                <input type="checkbox" checked={Boolean(reviews.fantlab)} onChange={() => toggleReviews("fantlab")} />
+                <span className="library-admin__source-name">{t("source.fantlab")}</span>
+                <span className="library-admin__source-hint">{t("admin.reviews.fantlab.hint")}</span>
+              </label>
+            </li>
+            <li>
+              <label className="library-admin__source">
+                <input type="checkbox" checked={Boolean(reviews.livelib)} onChange={() => toggleReviews("livelib")} />
+                <span className="library-admin__source-name">LiveLib</span>
+                <span className="library-admin__source-hint">{t("admin.reviews.livelib.hint")}</span>
+              </label>
+            </li>
+            <li>
+              <label className="library-admin__source">
+                <input type="checkbox" checked={Boolean(reviews.hardcover)} onChange={() => toggleReviews("hardcover")} />
+                <span className="library-admin__source-name">Hardcover</span>
+                <span className="library-admin__source-hint">{t("admin.reviews.hardcover.hint")}</span>
+              </label>
+            </li>
+            <li>
+              <label className="library-admin__source">
+                <input type="checkbox" checked={Boolean(reviews.nyt)} onChange={() => toggleReviews("nyt")} />
+                <span className="library-admin__source-name">NYT Books</span>
+                <span className="library-admin__source-hint">{t("admin.reviews.nyt.hint")}</span>
+              </label>
+            </li>
+          </ul>
+        )}
+        <div className="library-admin__key-row">
+          <input
+            type="password"
+            autoComplete="off"
+            placeholder={t("admin.hardcover.key")}
+            value={hardcoverToken}
+            onChange={(e) => setHardcoverToken(e.target.value)}
+          />
+          <button type="button" className="btn btn-primary" onClick={saveHardcoverToken}>
+            {t("admin.hardcover.save")}
+          </button>
+        </div>
+        <div className="library-admin__key-row">
+          <input
+            type="password"
+            autoComplete="off"
+            placeholder={t("admin.nyt.key")}
+            value={nytBooksKey}
+            onChange={(e) => setNytBooksKey(e.target.value)}
+          />
+          <button type="button" className="btn btn-primary" onClick={saveNytBooksKey}>
+            {t("admin.nyt.save")}
           </button>
         </div>
       </section>

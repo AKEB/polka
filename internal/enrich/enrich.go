@@ -59,6 +59,7 @@ type Provider struct {
 	mu      sync.Mutex
 	cache   map[string]cacheEntry
 	similar map[string]similarEntry
+	reviews map[string]reviewsEntry
 	backoff map[string]time.Time // source -> do not query until
 
 	// Base URLs are overridden in tests.
@@ -67,6 +68,8 @@ type Provider struct {
 	OpenLibraryBase string
 	FantLabBase     string
 	TasteDiveBase   string
+	HardcoverBase   string
+	NYTBase         string
 }
 
 func New(cachePath string) *Provider {
@@ -80,6 +83,8 @@ func New(cachePath string) *Provider {
 		OpenLibraryBase: "https://openlibrary.org",
 		FantLabBase:     "https://api.fantlab.ru",
 		TasteDiveBase:   "https://tastedive.com",
+		HardcoverBase:   "https://api.hardcover.app",
+		NYTBase:         "https://api.nytimes.com",
 	}
 	p.loadCache()
 	return p

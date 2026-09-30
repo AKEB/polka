@@ -43,13 +43,22 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 		enrichment[source] = on
 	}
 	cfg := s.similarConfig(r)
+	rev := s.reviewsConfig(r)
 	writeJSON(w, map[string]any{
 		"enrichment": enrichment,
 		"similar": map[string]bool{
 			"fantlab":   cfg.FantLab,
 			"tastedive": cfg.TasteDive,
 		},
-		"tastediveKey":      cfg.TasteDiveKey,
+		"tastediveKey": cfg.TasteDiveKey,
+		"reviews": map[string]bool{
+			"fantlab":   rev.FantLab,
+			"livelib":   rev.LiveLib,
+			"hardcover": rev.Hardcover,
+			"nyt":       rev.NYT,
+		},
+		"hardcoverToken":    rev.HardcoverToken,
+		"nytBooksKey":       rev.NYTKey,
 		"opdsEnabled":       s.opdsEnabled(r),
 		"smtp":              s.smtpSettings(r),
 		"collectionSources": s.sourcesJSON(r.Context()),
@@ -77,14 +86,17 @@ func (s *Server) libraryStatus() map[string]any {
 
 func (s *Server) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Enrichment   map[string]bool `json:"enrichment"`
-		Similar      map[string]bool `json:"similar"`
-		TasteDiveKey *string         `json:"tastediveKey"`
-		OpdsEnabled  *bool           `json:"opdsEnabled"`
-		Smtp         *smtpInput      `json:"smtp"`
-		Sources      map[string]bool `json:"collectionSources"`
+		Enrichment     map[string]bool `json:"enrichment"`
+		Similar        map[string]bool `json:"similar"`
+		Reviews        map[string]bool `json:"reviews"`
+		TasteDiveKey   *string         `json:"tastediveKey"`
+		HardcoverToken *string         `json:"hardcoverToken"`
+		NYTBooksKey    *string         `json:"nytBooksKey"`
+		OpdsEnabled    *bool           `json:"opdsEnabled"`
+		Smtp           *smtpInput      `json:"smtp"`
+		Sources        map[string]bool `json:"collectionSources"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&req); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
@@ -110,8 +122,28 @@ func (s *Server) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	for _, source := range []string{"fantlab", "livelib", "hardcover", "nyt"} {
+		if on, ok := req.Reviews[source]; ok {
+			if err := s.users.SetSetting(r.Context(), "enrich.reviews_"+source, boolVal(on)); err != nil {
+				s.apiError(w, err)
+				return
+			}
+		}
+	}
 	if req.TasteDiveKey != nil {
 		if err := s.users.SetSetting(r.Context(), "tastedive_key", strings.TrimSpace(*req.TasteDiveKey)); err != nil {
+			s.apiError(w, err)
+			return
+		}
+	}
+	if req.HardcoverToken != nil {
+		if err := s.users.SetSetting(r.Context(), "hardcover_token", strings.TrimSpace(*req.HardcoverToken)); err != nil {
+			s.apiError(w, err)
+			return
+		}
+	}
+	if req.NYTBooksKey != nil {
+		if err := s.users.SetSetting(r.Context(), "nyt_books_key", strings.TrimSpace(*req.NYTBooksKey)); err != nil {
 			s.apiError(w, err)
 			return
 		}

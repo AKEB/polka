@@ -101,6 +101,62 @@ func TestSettingsAndRatings(t *testing.T) {
 	}
 }
 
+func TestExternalReviewsEndpoint(t *testing.T) {
+	ts, client, _ := newManageServer(t)
+
+	resp := uploadFiles(t, client, ts.URL+"/admin/books/upload", map[string][]byte{
+		"r.fb2": []byte(opdsFB2),
+	}, nil)
+	var up map[string][]uploadResult
+	json.NewDecoder(resp.Body).Decode(&up)
+	resp.Body.Close()
+	bookID := itoa64(up["results"][0].BookID)
+
+	// Defaults: fantlab/livelib on, hardcover/nyt off
+	var settings map[string]any
+	resp, _ = client.Get(ts.URL + "/admin/settings")
+	json.NewDecoder(resp.Body).Decode(&settings)
+	resp.Body.Close()
+	rev, _ := settings["reviews"].(map[string]any)
+	if rev == nil || rev["fantlab"] != true || rev["livelib"] != true {
+		t.Fatalf("default reviews = %v", settings["reviews"])
+	}
+	if rev["hardcover"] != false || rev["nyt"] != false {
+		t.Fatalf("paid review sources should default off: %v", rev)
+	}
+
+	// Disable all review sources — endpoint still returns empty list
+	resp = postJSON(t, client, ts.URL+"/admin/settings", map[string]any{
+		"reviews": map[string]bool{
+			"fantlab": false, "livelib": false, "hardcover": false, "nyt": false,
+		},
+	})
+	json.NewDecoder(resp.Body).Decode(&settings)
+	resp.Body.Close()
+
+	resp, _ = client.Get(ts.URL + "/main/getBooks/getExternalReviews?bookId=" + bookID + "&title=Test&author=Author")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("getExternalReviews -> %d", resp.StatusCode)
+	}
+	var body map[string]any
+	json.NewDecoder(resp.Body).Decode(&body)
+	list, _ := body["reviews"].([]any)
+	if list == nil {
+		t.Fatalf("expected reviews array, got %v", body)
+	}
+	if len(list) != 0 {
+		t.Fatalf("disabled sources should yield empty reviews, got %d", len(list))
+	}
+
+	// Missing params
+	resp, _ = client.Get(ts.URL + "/main/getBooks/getExternalReviews?bookId=" + bookID)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("missing title -> %d", resp.StatusCode)
+	}
+}
+
 func newClientLoggedIn(t *testing.T, baseURL, login, password string) *http.Client {
 	t.Helper()
 	jar := newJar(t)

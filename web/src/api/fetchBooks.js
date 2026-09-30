@@ -53,5 +53,8 @@ export const fetchBookForm = ({ selectedItemID } = {}) => get("getBookForm", { s
 export const fetchExternalEnrichment = ({ bookId, title, author, isbn } = {}) =>
   get("getExternalEnrichment", { bookId, title, author, isbn });
 
+export const fetchExternalReviews = ({ bookId, title, author } = {}) =>
+  get("getExternalReviews", { bookId, title, author });
+
 export const fetchSimilarBooks = ({ bookId, title, author } = {}) =>
   get("getSimilarBooks", { bookId, title, author });

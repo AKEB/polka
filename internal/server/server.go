@@ -197,6 +197,7 @@ func New(cfg *config.Config, log *slog.Logger, st *store.Store, lib *library.Lib
 		mux.HandleFunc("GET /main/getBooks/getBooksByIds", s.protected(s.handleGetBooksByIDs))
 		mux.HandleFunc("GET /main/getBooks/getSimilarBooks", s.protected(s.handleGetSimilarBooks))
 		mux.HandleFunc("GET /main/getBooks/getExternalEnrichment", s.protected(s.handleGetEnrichment))
+		mux.HandleFunc("GET /main/getBooks/getExternalReviews", s.protected(s.handleGetReviews))
 
 		// Covers and book files
 		mux.HandleFunc("GET /Images/covers/{id}", s.protected(s.handleCover))

@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "../api/api";
 import RatingStars from "../components/RatingStars";
 import RateStars from "../components/RateStars";
-import { fetchBookForm, fetchExternalEnrichment, fetchSimilarBooks } from "../api/fetchBooks";
+import { fetchBookForm, fetchExternalEnrichment, fetchExternalReviews, fetchSimilarBooks } from "../api/fetchBooks";
 import Shelf from "../components/Shelf";
 import BookEditForm from "../components/BookEditForm";
 import { deleteBook } from "../api/manage";
@@ -79,6 +79,8 @@ const BookPage = ({ user, sync }) => {
   const [enrichment, setEnrichment] = useState(null);
   const [enrichmentLoading, setEnrichmentLoading] = useState(false);
   const [similar, setSimilar] = useState(null); // {similar: [], external: []}
+  const [reviews, setReviews] = useState(null); // null = not loaded, [] = empty
+  const [reviewsLoading, setReviewsLoading] = useState(false);
   const [readProgress, setReadProgress] = useState(0);
   const [finished, setFinished] = useState(false);
   const [finishedBusy, setFinishedBusy] = useState(false);
@@ -259,6 +261,17 @@ const BookPage = ({ user, sync }) => {
     })
       .then((res) => !cancelled && setSimilar(res ?? null))
       .catch(() => !cancelled && setSimilar(null));
+
+    setReviews(null);
+    setReviewsLoading(true);
+    fetchExternalReviews({
+      bookId: data.bookForm.BookID,
+      title: data.bookForm.Title,
+      author,
+    })
+      .then((res) => !cancelled && setReviews(res?.reviews ?? []))
+      .catch(() => !cancelled && setReviews([]))
+      .finally(() => !cancelled && setReviewsLoading(false));
 
     return () => {
       cancelled = true;
@@ -588,6 +601,49 @@ const BookPage = ({ user, sync }) => {
               <h3>{t("book.annotation")}</h3>
               <div dangerouslySetInnerHTML={{ __html: annotation }} />
             </article>
+          )}
+
+          {(reviewsLoading || reviews !== null) && (
+            <section className="book-page__reviews" aria-live="polite">
+              <h3>{t("book.reviews")}</h3>
+              {reviewsLoading && <p className="book-page__reviews-status">{t("book.reviews.loading")}</p>}
+              {!reviewsLoading && reviews?.length === 0 && (
+                <p className="book-page__reviews-status">{t("book.reviews.empty")}</p>
+              )}
+              {!reviewsLoading && reviews?.length > 0 && (
+                <ul className="book-page__reviews-list">
+                  {reviews.map((rev, i) => {
+                    const srcKey = `source.${rev.source}`;
+                    const srcLabel = t(srcKey) !== srcKey ? t(srcKey) : rev.source;
+                    const rating =
+                      rev.rating > 0 && rev.maxRating > 0
+                        ? `${Number(rev.rating).toFixed(rev.rating % 1 ? 1 : 0)}/${Number(rev.maxRating)}`
+                        : null;
+                    return (
+                      <li key={`${rev.source}-${rev.url || i}`} className="book-page__review">
+                        <div className="book-page__review-meta">
+                          <span className="tag book-page__review-src">{srcLabel}</span>
+                          {rev.author && <span className="book-page__review-author">{rev.author}</span>}
+                          {rating && <span className="book-page__review-rating">{rating}</span>}
+                          {rev.date && <span className="book-page__review-date">{rev.date}</span>}
+                        </div>
+                        {rev.text && <p className="book-page__review-text">{rev.text}</p>}
+                        {rev.url && (
+                          <a
+                            className="book-page__review-link"
+                            href={rev.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {t("book.reviews.readMore")}
+                          </a>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
           )}
 
           <dl className="book-page__facts">
