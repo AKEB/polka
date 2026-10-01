@@ -295,59 +295,29 @@ func (s *Server) wishlistShelf(r *http.Request, userID int64, limit int) map[str
 	}
 }
 
-// readingShelf returns books from reading progress with the fraction read.
-func (s *Server) readingShelf(r *http.Request, userID int64, limit int) []map[string]any {
-	progress, err := s.users.ListProgress(r.Context(), userID, limit)
-	if err != nil || len(progress) == 0 {
-		return nil
+// progressFetchSize oversamples progress rows so FileKey fan-out siblings
+// can be collapsed and still fill the requested shelf limit.
+func progressFetchSize(limit int) int {
+	if limit <= 0 {
+		return 10000
 	}
-	ids := make([]int64, 0, len(progress))
-	overall := make(map[int64]float64, len(progress))
-	for _, p := range progress {
-		ids = append(ids, p.BookID)
-		overall[p.BookID] = p.Overall
+	fetch := limit * 8
+	if fetch < 64 {
+		fetch = 64
 	}
-	books, err := s.st.BooksByIDs(r.Context(), ids)
-	if err != nil {
-		s.log.Warn("reading shelf", "error", err)
-		return nil
+	if fetch > 2000 {
+		fetch = 2000
 	}
-	out := make([]map[string]any, 0, len(books))
-	for _, b := range books {
-		j := bookJSON(b)
-		j["ReadingProgress"] = overall[b.ID]
-		out = append(out, j)
-	}
-	return out
+	return fetch
 }
 
-// finishedCanonicalIDs lists finished book ids newest-first, collapsing FileKey siblings.
-// If limit > 0, at most limit ids are returned and hasMore reports whether more exist.
-func (s *Server) finishedCanonicalIDs(ctx context.Context, userID int64, limit int) ([]int64, bool, error) {
-	fetch := 10000
-	if limit > 0 {
-		// Oversample: fan-out writes one progress row per sibling.
-		fetch = limit * 8
-		if fetch < 64 {
-			fetch = 64
-		}
-		if fetch > 2000 {
-			fetch = 2000
-		}
-	}
-	progress, err := s.users.ListFinished(ctx, userID, fetch, 0)
-	if err != nil {
-		return nil, false, err
-	}
-	if len(progress) == 0 {
-		return nil, false, nil
-	}
-	ids := make([]int64, len(progress))
-	for i, p := range progress {
-		ids[i] = p.BookID
-	}
-	var keys map[int64]string
-	if s.st != nil {
+// collapseIDsByFileKey keeps the first id per FileKey (caller order = newest first).
+// If limit > 0, returns at most limit ids. hasMore is true when more unique files exist
+// in the input or the input was truncated by the caller's fetch cap.
+func (s *Server) collapseIDsByFileKey(ctx context.Context, ids []int64, limit int, inputFull bool) ([]int64, bool, error) {
+	keys := map[int64]string{}
+	if s.st != nil && len(ids) > 0 {
+		var err error
 		keys, err = s.st.BookFileKeys(ctx, ids)
 		if err != nil {
 			return nil, false, err
@@ -369,12 +339,65 @@ func (s *Server) finishedCanonicalIDs(ctx context.Context, userID int64, limit i
 	}
 	hasMore := false
 	if limit > 0 {
-		hasMore = len(out) > limit || len(progress) == fetch
+		hasMore = len(out) > limit || inputFull
 		if len(out) > limit {
 			out = out[:limit]
 		}
 	}
 	return out, hasMore, nil
+}
+
+// readingShelf returns books from reading progress with the fraction read.
+// FileKey siblings (same file under several series) collapse to one card.
+func (s *Server) readingShelf(r *http.Request, userID int64, limit int) []map[string]any {
+	fetch := progressFetchSize(limit)
+	progress, err := s.users.ListProgress(r.Context(), userID, fetch)
+	if err != nil || len(progress) == 0 {
+		return nil
+	}
+	ids := make([]int64, len(progress))
+	overall := make(map[int64]float64, len(progress))
+	for i, p := range progress {
+		ids[i] = p.BookID
+		overall[p.BookID] = p.Overall
+	}
+	ids, _, err = s.collapseIDsByFileKey(r.Context(), ids, limit, false)
+	if err != nil || len(ids) == 0 {
+		if err != nil {
+			s.log.Warn("reading shelf", "error", err)
+		}
+		return nil
+	}
+	books, err := s.st.BooksByIDs(r.Context(), ids)
+	if err != nil {
+		s.log.Warn("reading shelf", "error", err)
+		return nil
+	}
+	out := make([]map[string]any, 0, len(books))
+	for _, b := range books {
+		j := bookJSON(b)
+		j["ReadingProgress"] = overall[b.ID]
+		out = append(out, j)
+	}
+	return out
+}
+
+// finishedCanonicalIDs lists finished book ids newest-first, collapsing FileKey siblings.
+// If limit > 0, at most limit ids are returned and hasMore reports whether more exist.
+func (s *Server) finishedCanonicalIDs(ctx context.Context, userID int64, limit int) ([]int64, bool, error) {
+	fetch := progressFetchSize(limit)
+	progress, err := s.users.ListFinished(ctx, userID, fetch, 0)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(progress) == 0 {
+		return nil, false, nil
+	}
+	ids := make([]int64, len(progress))
+	for i, p := range progress {
+		ids[i] = p.BookID
+	}
+	return s.collapseIDsByFileKey(ctx, ids, limit, len(progress) == fetch)
 }
 
 func (s *Server) finishedShelf(r *http.Request, userID int64, limit int) map[string]any {

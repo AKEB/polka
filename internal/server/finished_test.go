@@ -95,8 +95,32 @@ func TestProgressSharedAcrossFileSiblings(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Partial progress fans out to siblings — reading shelf must show one card.
+	resp := postJSON(t, client, ts.URL+"/api/v1/read/"+itoa64(id1)+"/progress", map[string]any{
+		"chapter": 2, "position": 0.5, "progress": 0.4,
+	})
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("progress -> %d", resp.StatusCode)
+	}
+
+	var shelves map[string]any
+	resp, _ = client.Get(ts.URL + "/main/getBooks/getHomeShelves")
+	json.NewDecoder(resp.Body).Decode(&shelves)
+	resp.Body.Close()
+	var readingBooks int
+	for _, sh := range shelves["shelves"].([]any) {
+		m := sh.(map[string]any)
+		if m["id"] == "reading" {
+			readingBooks = len(m["books"].([]any))
+		}
+	}
+	if readingBooks != 1 {
+		t.Fatalf("reading shelf should dedupe siblings, got %d", readingBooks)
+	}
+
 	// Mark finished on the first sibling.
-	resp := postJSON(t, client, ts.URL+"/api/v1/books/"+itoa64(id1)+"/finished", map[string]any{"done": true})
+	resp = postJSON(t, client, ts.URL+"/api/v1/books/"+itoa64(id1)+"/finished", map[string]any{"done": true})
 	resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("finished -> %d", resp.StatusCode)
@@ -119,19 +143,24 @@ func TestProgressSharedAcrossFileSiblings(t *testing.T) {
 	}
 
 	// Finished shelf collapses FileKey siblings to one card and exposes see-all.
-	var shelves map[string]any
 	resp, _ = client.Get(ts.URL + "/main/getBooks/getHomeShelves")
 	json.NewDecoder(resp.Body).Decode(&shelves)
 	resp.Body.Close()
-	var finishedBooks int
+	var finishedBooks, stillReading int
 	for _, sh := range shelves["shelves"].([]any) {
 		m := sh.(map[string]any)
-		if m["id"] == "finished" {
+		switch m["id"] {
+		case "finished":
 			finishedBooks = len(m["books"].([]any))
+		case "reading":
+			stillReading = len(m["books"].([]any))
 		}
 	}
 	if finishedBooks != 1 {
 		t.Fatalf("finished shelf should dedupe siblings, got %d", finishedBooks)
+	}
+	if stillReading != 0 {
+		t.Fatalf("finished book must leave reading shelf, got %d", stillReading)
 	}
 
 	page := getJSONWith(t, client, ts.URL+"/main/getBooks/getShelfBooks?shelfId=finished")
