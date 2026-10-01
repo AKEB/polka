@@ -66,11 +66,14 @@ func (s *Server) shelvesForUser(r *http.Request, shelves []store.Shelf) []map[st
 	if len(finished) == 0 {
 		return out
 	}
+	var all []map[string]any
 	for _, sh := range out {
 		if books, ok := sh["books"].([]map[string]any); ok {
 			markFinishedMaps(books, finished)
+			all = append(all, books...)
 		}
 	}
+	s.markFinishedViaSiblings(r.Context(), all, finished)
 	return out
 }
 
@@ -80,21 +83,19 @@ func (s *Server) finishedSet(r *http.Request) map[int64]bool {
 		return nil
 	}
 	ids, err := s.users.FinishedBookIDs(r.Context(), u.ID)
-	if err != nil || len(ids) == 0 {
-		return ids
-	}
-	if s.st == nil {
-		return ids
-	}
-	expanded, err := s.st.ExpandSiblingIDs(r.Context(), ids)
 	if err != nil {
-		return ids
+		return nil
 	}
-	return expanded
+	// Fan-out already writes progress to every FileKey sibling, so the set
+	// is complete for new marks. Skip ExpandSiblingIDs here — it was a full
+	// books self-join on every home-page load.
+	return ids
 }
 
 func (s *Server) markFinished(r *http.Request, books []map[string]any) {
-	markFinishedMaps(books, s.finishedSet(r))
+	finished := s.finishedSet(r)
+	markFinishedMaps(books, finished)
+	s.markFinishedViaSiblings(r.Context(), books, finished)
 }
 
 func (s *Server) markShelvesFinished(r *http.Request, shelves []map[string]any) {
@@ -102,9 +103,73 @@ func (s *Server) markShelvesFinished(r *http.Request, shelves []map[string]any) 
 	if len(finished) == 0 {
 		return
 	}
+	var all []map[string]any
 	for _, sh := range shelves {
 		if books, ok := sh["books"].([]map[string]any); ok {
 			markFinishedMaps(books, finished)
+			all = append(all, books...)
+		}
+	}
+	s.markFinishedViaSiblings(r.Context(), all, finished)
+}
+
+// markFinishedViaSiblings covers legacy progress rows that predate FileKey fan-out.
+// Only expands siblings for unmarked books on the current page (not the whole finished set).
+func (s *Server) markFinishedViaSiblings(ctx context.Context, books []map[string]any, finished map[int64]bool) {
+	if s.st == nil || len(finished) == 0 || len(books) == 0 {
+		return
+	}
+	missing := map[int64]bool{}
+	var missingIDs []int64
+	for _, b := range books {
+		if b["Finished"] == true {
+			continue
+		}
+		id, ok := bookIDFromMap(b)
+		if !ok || missing[id] {
+			continue
+		}
+		missing[id] = true
+		missingIDs = append(missingIDs, id)
+	}
+	if len(missingIDs) == 0 {
+		return
+	}
+	expanded, err := s.st.ExpandSiblingIDs(ctx, missing)
+	if err != nil {
+		return
+	}
+	var hit []int64
+	for id := range expanded {
+		if finished[id] {
+			hit = append(hit, id)
+		}
+	}
+	if len(hit) == 0 {
+		return
+	}
+	hitKeys, err := s.st.BookFileKeys(ctx, hit)
+	if err != nil {
+		return
+	}
+	finishedFiles := make(map[string]bool, len(hitKeys))
+	for _, key := range hitKeys {
+		finishedFiles[key] = true
+	}
+	pageKeys, err := s.st.BookFileKeys(ctx, missingIDs)
+	if err != nil {
+		return
+	}
+	for _, b := range books {
+		if b["Finished"] == true {
+			continue
+		}
+		id, ok := bookIDFromMap(b)
+		if !ok {
+			continue
+		}
+		if key := pageKeys[id]; key != "" && finishedFiles[key] {
+			b["Finished"] = true
 		}
 	}
 }
@@ -256,15 +321,66 @@ func (s *Server) readingShelf(r *http.Request, userID int64, limit int) []map[st
 	return out
 }
 
-// finishedShelf returns books the user has fully read (one card per file).
+// finishedCanonicalIDs lists finished book ids newest-first, collapsing FileKey siblings.
+// If limit > 0, at most limit ids are returned and hasMore reports whether more exist.
+func (s *Server) finishedCanonicalIDs(ctx context.Context, userID int64, limit int) ([]int64, bool, error) {
+	fetch := 10000
+	if limit > 0 {
+		// Oversample: fan-out writes one progress row per sibling.
+		fetch = limit * 8
+		if fetch < 64 {
+			fetch = 64
+		}
+		if fetch > 2000 {
+			fetch = 2000
+		}
+	}
+	progress, err := s.users.ListFinished(ctx, userID, fetch, 0)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(progress) == 0 {
+		return nil, false, nil
+	}
+	ids := make([]int64, len(progress))
+	for i, p := range progress {
+		ids[i] = p.BookID
+	}
+	var keys map[int64]string
+	if s.st != nil {
+		keys, err = s.st.BookFileKeys(ctx, ids)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	var out []int64
+	seenFile := map[string]bool{}
+	for _, id := range ids {
+		if key := keys[id]; key != "" {
+			if seenFile[key] {
+				continue
+			}
+			seenFile[key] = true
+		}
+		out = append(out, id)
+		if limit > 0 && len(out) > limit {
+			break
+		}
+	}
+	hasMore := false
+	if limit > 0 {
+		hasMore = len(out) > limit || len(progress) == fetch
+		if len(out) > limit {
+			out = out[:limit]
+		}
+	}
+	return out, hasMore, nil
+}
+
 func (s *Server) finishedShelf(r *http.Request, userID int64, limit int) map[string]any {
-	ids, err := s.finishedCanonicalIDs(r.Context(), userID)
+	ids, hasMore, err := s.finishedCanonicalIDs(r.Context(), userID, limit)
 	if err != nil || len(ids) == 0 {
 		return nil
-	}
-	hasMore := len(ids) > limit
-	if hasMore {
-		ids = ids[:limit]
 	}
 	books, err := s.st.BooksByIDs(r.Context(), ids)
 	if err != nil {
@@ -282,32 +398,6 @@ func (s *Server) finishedShelf(r *http.Request, userID int64, limit int) map[str
 	return map[string]any{
 		"id": "finished", "title": tr(lang, "shelf.finished"), "books": out, "hasMore": hasMore,
 	}
-}
-
-// finishedCanonicalIDs lists finished book ids newest-first, collapsing FileKey siblings.
-func (s *Server) finishedCanonicalIDs(ctx context.Context, userID int64) ([]int64, error) {
-	progress, err := s.users.ListFinished(ctx, userID, 10000, 0)
-	if err != nil {
-		return nil, err
-	}
-	if len(progress) == 0 {
-		return nil, nil
-	}
-	var out []int64
-	seenFile := map[string]bool{}
-	for _, p := range progress {
-		if s.st != nil {
-			key, _, err := s.st.BookFileKey(ctx, p.BookID)
-			if err == nil {
-				if seenFile[key] {
-					continue
-				}
-				seenFile[key] = true
-			}
-		}
-		out = append(out, p.BookID)
-	}
-	return out, nil
 }
 
 func (s *Server) handleGetCatalogShelves(w http.ResponseWriter, r *http.Request) {
@@ -369,7 +459,7 @@ func (s *Server) handleFinishedShelfBooks(w http.ResponseWriter, r *http.Request
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return
 	}
-	ids, err := s.finishedCanonicalIDs(r.Context(), u.ID)
+	ids, _, err := s.finishedCanonicalIDs(r.Context(), u.ID, 0)
 	if err != nil {
 		s.apiError(w, err)
 		return

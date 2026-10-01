@@ -6,6 +6,50 @@ import (
 	"strings"
 )
 
+// BookFileKeys returns FileKey for each live book id in one query.
+func (s *Store) BookFileKeys(ctx context.Context, ids []int64) (map[int64]string, error) {
+	out := make(map[int64]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	const chunk = 400
+	for start := 0; start < len(ids); start += chunk {
+		end := start + chunk
+		if end > len(ids) {
+			end = len(ids)
+		}
+		part := ids[start:end]
+		placeholders := make([]string, len(part))
+		args := make([]any, len(part))
+		for i, id := range part {
+			placeholders[i] = "?"
+			args[i] = id
+		}
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT b.id, f.name, b.file, b.ext
+			FROM books b JOIN folders f ON f.id = b.folder_id
+			WHERE b.id IN (`+strings.Join(placeholders, ",")+`) AND b.deleted = 0`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var id int64
+			var folder, file, ext string
+			if err := rows.Scan(&id, &folder, &file, &ext); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out[id] = FileKey(folder, file, ext)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
 // BookSiblingIDs returns every live book id that shares the same FileKey
 // as bookID (including bookID itself). INPX can list one file under several
 // series as separate rows; callers use this to share progress and series.
