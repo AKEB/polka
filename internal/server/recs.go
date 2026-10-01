@@ -24,7 +24,7 @@ func (s *Server) userSeeds(r *http.Request, userID int64) (seeds, exclude []int6
 			reading = append(reading, p.BookID)
 		}
 	}
-	if done, err := s.users.ListFinished(ctx, userID, 100); err == nil {
+	if done, err := s.users.ListFinished(ctx, userID, 100, 0); err == nil {
 		for _, p := range done {
 			finished = append(finished, p.BookID)
 		}
@@ -75,15 +75,24 @@ func (s *Server) recShelves(r *http.Request, userID int64, limit int) []map[stri
 	var shelves []map[string]any
 
 	if next, err := s.st.SeriesContinuations(r.Context(), seeds, exclude, limit); err == nil && len(next) > 0 {
-		// Collections contain duplicate editions — collapse by title.
-		seen := map[string]bool{}
+		// Collapse duplicate editions (same title) and keep one card per series.
+		seenTitle := map[string]bool{}
+		seenSeries := map[string]bool{}
 		deduped := next[:0]
 		for _, b := range next {
-			key := strings.ToLower(b.Title)
-			if !seen[key] {
-				seen[key] = true
-				deduped = append(deduped, b)
+			titleKey := strings.ToLower(b.Title)
+			seriesKey := strings.ToLower(b.SeriesTitle)
+			if seriesKey != "" && seenSeries[seriesKey] {
+				continue
 			}
+			if seenTitle[titleKey] {
+				continue
+			}
+			seenTitle[titleKey] = true
+			if seriesKey != "" {
+				seenSeries[seriesKey] = true
+			}
+			deduped = append(deduped, b)
 		}
 		shelves = append(shelves, map[string]any{
 			"id": "series_next", "title": tr(lang, "shelf.series_next"), "books": booksJSON(deduped), "hasMore": false,

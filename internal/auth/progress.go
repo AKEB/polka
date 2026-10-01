@@ -92,14 +92,18 @@ func (s *Service) ListProgress(ctx context.Context, userID int64, limit int) ([]
 }
 
 // ListFinished returns books the user marked (or reached) as fully read.
-func (s *Service) ListFinished(ctx context.Context, userID int64, limit int) ([]Progress, error) {
+// offset skips the first N rows (newest first).
+func (s *Service) ListFinished(ctx context.Context, userID int64, limit, offset int) ([]Progress, error) {
 	if limit <= 0 {
 		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT book_id, chapter, position, overall FROM reading_progress
 		WHERE user_id = ? AND cleared = 0 AND overall >= 0.98
-		ORDER BY updated_at DESC LIMIT ?`, userID, limit)
+		ORDER BY updated_at DESC LIMIT ? OFFSET ?`, userID, limit, offset)
 	if err != nil {
 		return nil, err
 	}

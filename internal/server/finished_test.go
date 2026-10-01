@@ -117,4 +117,25 @@ func TestProgressSharedAcrossFileSiblings(t *testing.T) {
 	if len(series) != 2 {
 		t.Fatalf("series on card = %#v", form["series"])
 	}
+
+	// Finished shelf collapses FileKey siblings to one card and exposes see-all.
+	var shelves map[string]any
+	resp, _ = client.Get(ts.URL + "/main/getBooks/getHomeShelves")
+	json.NewDecoder(resp.Body).Decode(&shelves)
+	resp.Body.Close()
+	var finishedBooks int
+	for _, sh := range shelves["shelves"].([]any) {
+		m := sh.(map[string]any)
+		if m["id"] == "finished" {
+			finishedBooks = len(m["books"].([]any))
+		}
+	}
+	if finishedBooks != 1 {
+		t.Fatalf("finished shelf should dedupe siblings, got %d", finishedBooks)
+	}
+
+	page := getJSONWith(t, client, ts.URL+"/main/getBooks/getShelfBooks?shelfId=finished")
+	if len(page["titlesList"].([]any)) != 1 {
+		t.Fatalf("finished page = %#v", page["titlesList"])
+	}
 }

@@ -186,7 +186,7 @@ func TestMarkFinished(t *testing.T) {
 	if list, err := s.ListProgress(ctx, u.ID, 10); err != nil || len(list) != 0 {
 		t.Errorf("finished book still in reading list: %v %v", list, err)
 	}
-	done, err := s.ListFinished(ctx, u.ID, 10)
+	done, err := s.ListFinished(ctx, u.ID, 10, 0)
 	if err != nil || len(done) != 1 || done[0].BookID != 42 {
 		t.Fatalf("ListFinished: %v %v", done, err)
 	}

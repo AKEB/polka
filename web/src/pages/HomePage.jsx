@@ -135,7 +135,7 @@ const HomePage = ({ config, filterLang, onFilterLang }) => {
               onSeeAll={
                 shelf.id === "wishlist"
                   ? () => navigate("/lists")
-                  : shelf.hasMore
+                  : shelf.id === "finished" || shelf.hasMore
                     ? () =>
                         navigate(`/shelf/${encodeURIComponent(shelf.id)}`, {
                           state: { title: meta.title },

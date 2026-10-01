@@ -86,6 +86,52 @@ func TestSeriesContinuations(t *testing.T) {
 	}
 }
 
+func TestSeriesContinuationsOnePerSeries(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "anth.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ctx := context.Background()
+	session, err := st.NewImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	add := func(title string, num int) {
+		if err := session.Add(&BookInput{
+			Title: title, Authors: []AuthorName{{Last: "Ант"}}, Series: "Антология", SeriesNum: num,
+			Folder: "a.zip", File: title, Ext: "fb2", Lang: "ru", Rate: 4, Added: "2024-01-01",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("Том 0", 1)
+	// Same next series_num shared by three anthology entries.
+	add("Сборщик душ", 2)
+	add("Другие миры", 2)
+	add("Историкум", 2)
+	if _, err := session.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := st.DB().Query(`SELECT id, title FROM books`)
+	ids := map[string]int64{}
+	for rows.Next() {
+		var id int64
+		var title string
+		rows.Scan(&id, &title)
+		ids[title] = id
+	}
+	rows.Close()
+
+	next, err := st.SeriesContinuations(ctx, []int64{ids["Том 0"]}, nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next) != 1 {
+		t.Fatalf("want 1 next book per series, got %v", titlesOf(next))
+	}
+}
+
 func TestRecommendForUser(t *testing.T) {
 	st, ids := newRecsStore(t)
 	ctx := context.Background()

@@ -70,6 +70,7 @@ func (s *Store) SimilarBooks(ctx context.Context, bookID int64, limit int) ([]Bo
 }
 
 // SeriesContinuations: for finished books that belong to series, the next book in the series.
+// At most one book per series (anthologies often share the same series_num).
 func (s *Store) SeriesContinuations(ctx context.Context, seedIDs, excludeIDs []int64, limit int) ([]Book, error) {
 	if len(seedIDs) == 0 {
 		return nil, nil
@@ -79,15 +80,21 @@ func (s *Store) SeriesContinuations(ctx context.Context, seedIDs, excludeIDs []i
 			SELECT series_id, max(series_num) AS last_num
 			FROM books WHERE id IN (%s) AND series_id IS NOT NULL AND series_num IS NOT NULL
 			GROUP BY series_id
+		),
+		nexts AS (
+			SELECT seeds.series_id, min(b.id) AS book_id
+			FROM seeds
+			JOIN books b ON b.series_id = seeds.series_id AND b.deleted = 0
+				AND b.series_num = (
+					SELECT min(b2.series_num) FROM books b2
+					WHERE b2.series_id = seeds.series_id AND b2.deleted = 0
+						AND b2.series_num > seeds.last_num
+						%s
+				)
+			GROUP BY seeds.series_id
 		)
-		SELECT b.id FROM seeds
-		JOIN books b ON b.series_id = seeds.series_id AND b.deleted = 0
-			AND b.series_num = (
-				SELECT min(b2.series_num) FROM books b2
-				WHERE b2.series_id = seeds.series_id AND b2.deleted = 0
-					AND b2.series_num > seeds.last_num
-					%s
-			)
+		SELECT book_id FROM nexts
+		ORDER BY book_id
 		LIMIT %d`,
 		placeholders(len(seedIDs)), notInClause("b2.id", len(excludeIDs), len(seedIDs)+1), limit)
 

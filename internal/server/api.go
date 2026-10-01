@@ -188,10 +188,8 @@ func (s *Server) handleGetHomeShelves(w http.ResponseWriter, r *http.Request) {
 				"id": "reading", "title": tr(lang, "shelf.reading"), "books": reading, "hasMore": false,
 			})
 		}
-		if finished := s.finishedShelf(r, u.ID, limit); len(finished) > 0 {
-			personal = append(personal, map[string]any{
-				"id": "finished", "title": tr(lang, "shelf.finished"), "books": finished, "hasMore": false,
-			})
+		if finished := s.finishedShelf(r, u.ID, limit); finished != nil {
+			personal = append(personal, finished)
 		}
 		if wishlist := s.wishlistShelf(r, u.ID, limit); wishlist != nil {
 			wishlist["title"] = tr(lang, "shelf.wishlist")
@@ -258,15 +256,15 @@ func (s *Server) readingShelf(r *http.Request, userID int64, limit int) []map[st
 	return out
 }
 
-// finishedShelf returns books the user has fully read.
-func (s *Server) finishedShelf(r *http.Request, userID int64, limit int) []map[string]any {
-	progress, err := s.users.ListFinished(r.Context(), userID, limit)
-	if err != nil || len(progress) == 0 {
+// finishedShelf returns books the user has fully read (one card per file).
+func (s *Server) finishedShelf(r *http.Request, userID int64, limit int) map[string]any {
+	ids, err := s.finishedCanonicalIDs(r.Context(), userID)
+	if err != nil || len(ids) == 0 {
 		return nil
 	}
-	ids := make([]int64, 0, len(progress))
-	for _, p := range progress {
-		ids = append(ids, p.BookID)
+	hasMore := len(ids) > limit
+	if hasMore {
+		ids = ids[:limit]
 	}
 	books, err := s.st.BooksByIDs(r.Context(), ids)
 	if err != nil {
@@ -280,7 +278,36 @@ func (s *Server) finishedShelf(r *http.Request, userID int64, limit int) []map[s
 		j["Finished"] = true
 		out = append(out, j)
 	}
-	return out
+	lang := reqLang(r)
+	return map[string]any{
+		"id": "finished", "title": tr(lang, "shelf.finished"), "books": out, "hasMore": hasMore,
+	}
+}
+
+// finishedCanonicalIDs lists finished book ids newest-first, collapsing FileKey siblings.
+func (s *Server) finishedCanonicalIDs(ctx context.Context, userID int64) ([]int64, error) {
+	progress, err := s.users.ListFinished(ctx, userID, 10000, 0)
+	if err != nil {
+		return nil, err
+	}
+	if len(progress) == 0 {
+		return nil, nil
+	}
+	var out []int64
+	seenFile := map[string]bool{}
+	for _, p := range progress {
+		if s.st != nil {
+			key, _, err := s.st.BookFileKey(ctx, p.BookID)
+			if err == nil {
+				if seenFile[key] {
+					continue
+				}
+				seenFile[key] = true
+			}
+		}
+		out = append(out, p.BookID)
+	}
+	return out, nil
 }
 
 func (s *Server) handleGetCatalogShelves(w http.ResponseWriter, r *http.Request) {
@@ -302,6 +329,10 @@ func (s *Server) handleGetShelfBooks(w http.ResponseWriter, r *http.Request) {
 	offset := 0
 	if v, err := strconv.Atoi(r.URL.Query().Get("offset")); err == nil && v > 0 {
 		offset = v
+	}
+	if shelfID == "finished" {
+		s.handleFinishedShelfBooks(w, r, limit, offset)
+		return
 	}
 	var books []store.Book
 	var title string
@@ -329,6 +360,47 @@ func (s *Server) handleGetShelfBooks(w http.ResponseWriter, r *http.Request) {
 		"hasMore":    hasMore,
 		"nextOffset": offset + len(books),
 		"languages":  s.shelfLanguages(r, shelfID),
+	})
+}
+
+func (s *Server) handleFinishedShelfBooks(w http.ResponseWriter, r *http.Request, limit, offset int) {
+	u := s.currentUser(r)
+	if u == nil {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return
+	}
+	ids, err := s.finishedCanonicalIDs(r.Context(), u.ID)
+	if err != nil {
+		s.apiError(w, err)
+		return
+	}
+	if offset > len(ids) {
+		offset = len(ids)
+	}
+	end := offset + limit
+	hasMore := end < len(ids)
+	if end > len(ids) {
+		end = len(ids)
+	}
+	page := ids[offset:end]
+	books, err := s.st.BooksByIDs(r.Context(), page)
+	if err != nil {
+		s.apiError(w, err)
+		return
+	}
+	out := make([]map[string]any, 0, len(books))
+	for _, b := range books {
+		j := bookJSON(b)
+		j["ReadingProgress"] = 1.0
+		j["Finished"] = true
+		out = append(out, j)
+	}
+	writeJSON(w, map[string]any{
+		"titlesList": out,
+		"title":      tr(reqLang(r), "shelf.finished"),
+		"hasMore":    hasMore,
+		"nextOffset": offset + len(out),
+		"languages":  []map[string]any{},
 	})
 }
 
