@@ -438,6 +438,7 @@ func (s *Server) syncReadMeta(w http.ResponseWriter, r *http.Request) {
 		"bookId": bookID, "format": format,
 		"title": b.Title, "authors": b.Authors,
 		"chapters": chapters, "notes": text.Notes,
+		"pageEstimate": library.EstimatePages(text),
 	})
 }
 

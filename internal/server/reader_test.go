@@ -44,6 +44,9 @@ func TestReaderEndpoints(t *testing.T) {
 	if chapters[0].(map[string]any)["title"] != "Глава 1" {
 		t.Errorf("toc[0] = %v", chapters[0])
 	}
+	if pages, _ := meta["pageEstimate"].(float64); pages < 1 {
+		t.Errorf("pageEstimate = %v", meta["pageEstimate"])
+	}
 	notes := meta["notes"].(map[string]any)
 	if !strings.Contains(notes["z1"].(string), "Сноска.") {
 		t.Errorf("notes = %v", notes)

@@ -8,7 +8,7 @@ import { fetchBookForm, fetchExternalEnrichment, fetchExternalReviews, fetchSimi
 import Shelf from "../components/Shelf";
 import BookEditForm from "../components/BookEditForm";
 import { deleteBook } from "../api/manage";
-import { clearProgress, fetchProgress, toggleFinished } from "../api/reader";
+import { clearProgress, fetchProgress, fetchReadMeta, toggleFinished } from "../api/reader";
 import { rateBook } from "../api/ratings";
 import { toggleWishlist } from "../api/lists";
 import { fetchReaderEmail, setReaderEmail, sendBook } from "../api/send";
@@ -81,6 +81,8 @@ const BookPage = ({ user, sync }) => {
   const [similar, setSimilar] = useState(null); // {similar: [], external: []}
   const [reviews, setReviews] = useState(null); // null = not loaded, [] = empty
   const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [readMeta, setReadMeta] = useState(null); // {chapters, pageEstimate, format}
+  const [tocOpen, setTocOpen] = useState(false);
   const [readProgress, setReadProgress] = useState(0);
   const [finished, setFinished] = useState(false);
   const [finishedBusy, setFinishedBusy] = useState(false);
@@ -287,6 +289,15 @@ const BookPage = ({ user, sync }) => {
         });
     };
     pollReviews();
+
+    const readable = [".fb2", ".txt", ".epub"].includes(data.bookForm.Ext);
+    setReadMeta(null);
+    setTocOpen(false);
+    if (readable) {
+      fetchReadMeta(data.bookForm.BookID)
+        .then((res) => !cancelled && setReadMeta(res ?? null))
+        .catch(() => !cancelled && setReadMeta(null));
+    }
 
     return () => {
       cancelled = true;
@@ -693,6 +704,12 @@ const BookPage = ({ user, sync }) => {
                 <dd>{formatBytes(BookSize)}</dd>
               </>
             )}
+            {readMeta?.pageEstimate > 0 && (
+              <>
+                <dt>{t("book.pages")}</dt>
+                <dd>{t("book.pages.approx", { n: readMeta.pageEstimate })}</dd>
+              </>
+            )}
             {FileName && (
               <>
                 <dt>{t("book.file")}</dt>
@@ -703,6 +720,32 @@ const BookPage = ({ user, sync }) => {
               </>
             )}
           </dl>
+
+          {readMeta?.chapters?.length > 0 && (
+            <section className="book-page__toc">
+              <button
+                type="button"
+                className="book-page__toc-toggle"
+                aria-expanded={tocOpen}
+                onClick={() => setTocOpen((v) => !v)}
+              >
+                <span>{t("book.toc")}</span>
+                <span className="book-page__toc-count">{readMeta.chapters.length}</span>
+                <span className="book-page__toc-chevron" aria-hidden="true">
+                  {tocOpen ? "▾" : "▸"}
+                </span>
+              </button>
+              {tocOpen && (
+                <ol className="book-page__toc-list">
+                  {readMeta.chapters.map((ch) => (
+                    <li key={ch.index}>
+                      <Link to={`/read/${BookID}?chapter=${ch.index}`}>{ch.title}</Link>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          )}
         </section>
       </div>
 

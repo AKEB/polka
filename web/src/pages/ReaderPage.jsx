@@ -1,6 +1,6 @@
 import { t } from "../i18n";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   clearProgress,
   fetchChapter,
@@ -41,6 +41,7 @@ const chapterLabel = (meta, index) =>
 
 const ReaderPage = () => {
   const { bookId } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
   const [meta, setMeta] = useState(null);
@@ -131,8 +132,13 @@ const ReaderPage = () => {
         }
         serverStored.current = Boolean(prog?.stored);
         const saved = prog?.stored ? prog : localProgress.get(bookId);
-        const index = Math.max(0, Math.min(Number(saved?.chapter ?? 0), m.chapters.length - 1));
-        restoreTo.current = { index, ratio: Number(saved?.position ?? 0) };
+        const rawChapter = searchParams.get("chapter");
+        const fromQuery = rawChapter != null && rawChapter !== "" ? Number(rawChapter) : NaN;
+        const hasQuery = Number.isFinite(fromQuery) && fromQuery >= 0;
+        const wantChapter = hasQuery ? fromQuery : Number(saved?.chapter ?? 0);
+        const index = Math.max(0, Math.min(wantChapter, m.chapters.length - 1));
+        const ratio = hasQuery ? 0 : Number(saved?.position ?? 0);
+        restoreTo.current = { index, ratio };
         totalRef.current = m.chapters.length;
         setMeta(m);
         return fetchChapter(bookId, index).then((ch) => {
@@ -146,7 +152,7 @@ const ReaderPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [bookId]);
+  }, [bookId, searchParams]);
 
   // --- Jump to the saved position after the chapter renders ---
   useEffect(() => {

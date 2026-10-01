@@ -293,6 +293,65 @@ a.tag:hover {
   word-break: break-all;
 }
 
+.book-page__toc {
+  margin-top: 20px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.book-page__toc-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.book-page__toc-toggle:hover {
+  color: var(--accent, #2a6);
+}
+
+.book-page__toc-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-muted);
+}
+
+.book-page__toc-chevron {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.book-page__toc-list {
+  margin: 12px 0 0;
+  padding: 0 0 0 1.25em;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.book-page__toc-list a {
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.book-page__toc-list a:hover {
+  color: var(--accent, #2a6);
+  text-decoration: underline;
+}
+
 .book-page__error {
   display: flex;
   flex-direction: column;

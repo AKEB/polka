@@ -130,12 +130,13 @@ func (s *Server) handleReadMeta(w http.ResponseWriter, r *http.Request) {
 		chapters = append(chapters, map[string]any{"index": i, "title": title})
 	}
 	writeJSON(w, map[string]any{
-		"bookId":   bookID,
-		"format":   format,
-		"title":    d.Title,
-		"authors":  d.AuthorNames,
-		"chapters": chapters,
-		"notes":    text.Notes,
+		"bookId":       bookID,
+		"format":       format,
+		"title":        d.Title,
+		"authors":      d.AuthorNames,
+		"chapters":     chapters,
+		"notes":        text.Notes,
+		"pageEstimate": library.EstimatePages(text),
 	})
 }
 
