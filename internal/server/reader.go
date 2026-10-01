@@ -225,7 +225,7 @@ func (s *Server) handleReadProgress(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid progress", http.StatusBadRequest)
 			return
 		}
-		if err := s.users.SaveProgress(r.Context(), u.ID, bookID, p); err != nil {
+		if err := s.saveProgressForFile(r.Context(), u.ID, bookID, p); err != nil {
 			s.apiError(w, err)
 			return
 		}
@@ -233,7 +233,7 @@ func (s *Server) handleReadProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := s.users.GetProgress(r.Context(), u.ID, bookID)
+	p, err := s.progressForFile(r.Context(), u.ID, bookID)
 	if err != nil {
 		writeJSON(w, map[string]any{"stored": true, "chapter": 0, "position": 0, "progress": 0})
 		return
@@ -256,7 +256,7 @@ func (s *Server) handleClearProgress(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true, "stored": false})
 		return
 	}
-	if err := s.users.DeleteProgress(r.Context(), u.ID, bookID); err != nil {
+	if err := s.deleteProgressForFile(r.Context(), u.ID, bookID); err != nil {
 		s.apiError(w, err)
 		return
 	}

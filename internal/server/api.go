@@ -80,10 +80,17 @@ func (s *Server) finishedSet(r *http.Request) map[int64]bool {
 		return nil
 	}
 	ids, err := s.users.FinishedBookIDs(r.Context(), u.ID)
-	if err != nil {
-		return nil
+	if err != nil || len(ids) == 0 {
+		return ids
 	}
-	return ids
+	if s.st == nil {
+		return ids
+	}
+	expanded, err := s.st.ExpandSiblingIDs(r.Context(), ids)
+	if err != nil {
+		return ids
+	}
+	return expanded
 }
 
 func (s *Server) markFinished(r *http.Request, books []map[string]any) {

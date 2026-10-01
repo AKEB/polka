@@ -571,13 +571,11 @@ func (s *Store) BookDetails(ctx context.Context, bookID int64) (*BookDetails, er
 		return nil, err
 	}
 
-	if d.SeriesTitle != "" {
-		var sid int64
-		if err := s.db.QueryRowContext(ctx,
-			`SELECT coalesce(series_id, 0) FROM books WHERE id = ?`, bookID).Scan(&sid); err == nil && sid > 0 {
-			d.Series = append(d.Series, SeriesRef{ID: sid, Title: d.SeriesTitle, SeqNumber: d.SeqNumber})
-		}
+	series, err := s.SeriesForFile(ctx, bookID)
+	if err != nil {
+		return nil, err
 	}
+	d.Series = series
 
 	grows, err := s.db.QueryContext(ctx, `
 		SELECT g.code FROM book_genres bg JOIN genres g ON g.id = bg.genre_id

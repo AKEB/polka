@@ -245,16 +245,18 @@ func (s *Server) handleFinishedToggle(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	if req.Done {
-		if err := s.users.MarkFinished(ctx, u.ID, bookID); err != nil {
+		if err := s.saveProgressForFile(ctx, u.ID, bookID, auth.Progress{BookID: bookID, Overall: 1}); err != nil {
 			s.apiError(w, err)
 			return
 		}
-		// Finished books leave the wishlist.
+		// Finished books leave the wishlist (every FileKey sibling).
 		if wl, err := s.users.Wishlist(ctx, u.ID); err == nil {
-			_ = s.users.RemoveFromList(ctx, u.ID, wl.ID, bookID)
+			for _, id := range s.siblingBookIDs(ctx, bookID) {
+				_ = s.users.RemoveFromList(ctx, u.ID, wl.ID, id)
+			}
 		}
 	} else {
-		if err := s.users.DeleteProgress(ctx, u.ID, bookID); err != nil {
+		if err := s.deleteProgressForFile(ctx, u.ID, bookID); err != nil {
 			s.apiError(w, err)
 			return
 		}

@@ -1,8 +1,11 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/vestigiumincaligne/polka/internal/store"
 )
 
 func TestFinishedToggleAndShelf(t *testing.T) {
@@ -70,5 +73,48 @@ func TestFinishedToggleAndShelf(t *testing.T) {
 		if sh["id"] == "finished" {
 			t.Error("empty finished shelf must disappear")
 		}
+	}
+}
+
+func TestProgressSharedAcrossFileSiblings(t *testing.T) {
+	ts, client, st := newManageServer(t)
+	ctx := context.Background()
+
+	id1, err := st.AddBook(ctx, &store.BookInput{
+		Title: "Правила крови", Series: "Тайный город", SeriesNum: 10,
+		Authors: []store.AuthorName{{Last: "Панов"}}, Folder: "x.zip", File: "7", Ext: "fb2", Lang: "ru",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id2, err := st.AddBook(ctx, &store.BookInput{
+		Title: "Правила крови", Series: "Правила крови", SeriesNum: 3,
+		Authors: []store.AuthorName{{Last: "Панов"}}, Folder: "x.zip", File: "7", Ext: "fb2", Lang: "ru",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Mark finished on the first sibling.
+	resp := postJSON(t, client, ts.URL+"/api/v1/books/"+itoa64(id1)+"/finished", map[string]any{"done": true})
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("finished -> %d", resp.StatusCode)
+	}
+
+	// Progress is visible on the other sibling.
+	var prog map[string]any
+	resp, _ = client.Get(ts.URL + "/api/v1/read/" + itoa64(id2) + "/progress")
+	json.NewDecoder(resp.Body).Decode(&prog)
+	resp.Body.Close()
+	if prog["progress"].(float64) < 0.98 {
+		t.Fatalf("sibling progress = %v", prog)
+	}
+
+	// Book form lists both series.
+	form := getJSONWith(t, client, ts.URL+"/main/getBooks/getBookForm?selectedItemID="+itoa64(id1))
+	series, _ := form["series"].([]any)
+	if len(series) != 2 {
+		t.Fatalf("series on card = %#v", form["series"])
 	}
 }
