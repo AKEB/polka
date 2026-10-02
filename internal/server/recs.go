@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,7 +19,7 @@ func (s *Server) userSeeds(r *http.Request, userID int64) (seeds, exclude []int6
 	ctx := r.Context()
 	liked, _ := s.users.RatedBookIDs(ctx, userID, 4)
 	listed, _ := s.users.AllListBookIDs(ctx, userID)
-	var reading, finished []int64
+	var reading, finishedRecent []int64
 	if progress, err := s.users.ListProgress(ctx, userID, 100); err == nil {
 		for _, p := range progress {
 			reading = append(reading, p.BookID)
@@ -26,10 +27,13 @@ func (s *Server) userSeeds(r *http.Request, userID int64) (seeds, exclude []int6
 	}
 	if done, err := s.users.ListFinished(ctx, userID, 100, 0); err == nil {
 		for _, p := range done {
-			finished = append(finished, p.BookID)
+			finishedRecent = append(finishedRecent, p.BookID)
 		}
 	}
 	rated, _ := s.users.RatedBookIDs(ctx, userID, 0)
+	// Full finished set — ListFinished(100) is only a seed sample and misses
+	// older reads (worse with FileKey fan-out, which multiplies progress rows).
+	allFinished, _ := s.users.FinishedBookIDs(ctx, userID)
 
 	seen := map[int64]bool{}
 	add := func(dst *[]int64, ids []int64, cap int) {
@@ -43,15 +47,20 @@ func (s *Server) userSeeds(r *http.Request, userID int64) (seeds, exclude []int6
 			}
 		}
 	}
-	// Limit seeds to the 60 most recent: SQL with IN lists must stay lightweight.
-	// Finished reads first — they are the strongest signal for "more like this".
-	add(&seeds, finished, 60)
+	// Finished reads are the strongest signal, but leave room for ratings/lists:
+	// FileKey fan-out and a large finished library would otherwise fill the cap
+	// with books that have no series and starve "Continue series".
+	add(&seeds, finishedRecent, 40)
 	add(&seeds, liked, 60)
 	add(&seeds, listed, 60)
 	add(&seeds, reading, 60)
 
 	excludeSeen := map[int64]bool{}
-	for _, ids := range [][]int64{rated, listed, reading, finished} {
+	for id := range allFinished {
+		excludeSeen[id] = true
+		exclude = append(exclude, id)
+	}
+	for _, ids := range [][]int64{rated, listed, reading, finishedRecent} {
 		for _, id := range ids {
 			if !excludeSeen[id] {
 				excludeSeen[id] = true
@@ -59,10 +68,30 @@ func (s *Server) userSeeds(r *http.Request, userID int64) (seeds, exclude []int6
 			}
 		}
 	}
-	if len(exclude) > 400 {
-		exclude = exclude[:400]
-	}
 	return seeds, exclude
+}
+
+// bookFinished reports whether bookID (or a FileKey sibling) is fully read.
+func (s *Server) bookFinished(ctx context.Context, bookID int64, finished map[int64]bool) bool {
+	if len(finished) == 0 {
+		return false
+	}
+	if finished[bookID] {
+		return true
+	}
+	if s.st == nil {
+		return false
+	}
+	sibs, err := s.st.BookSiblingIDs(ctx, bookID)
+	if err != nil {
+		return false
+	}
+	for _, id := range sibs {
+		if finished[id] {
+			return true
+		}
+	}
+	return false
 }
 
 // recShelves builds the personal recommendation shelves.
@@ -72,14 +101,19 @@ func (s *Server) recShelves(r *http.Request, userID int64, limit int) []map[stri
 		return nil
 	}
 	lang := reqLang(r)
+	finished := s.finishedSet(r)
 	var shelves []map[string]any
 
-	if next, err := s.st.SeriesContinuations(r.Context(), seeds, exclude, limit); err == nil && len(next) > 0 {
-		// Collapse duplicate editions (same title) and keep one card per series.
+	// Oversample: excluded finished ids should make SQL skip ahead, but also
+	// drop any leftover finished cards (legacy progress without full fan-out).
+	if next, err := s.st.SeriesContinuations(r.Context(), seeds, exclude, limit*3); err == nil && len(next) > 0 {
 		seenTitle := map[string]bool{}
 		seenSeries := map[string]bool{}
 		deduped := next[:0]
 		for _, b := range next {
+			if s.bookFinished(r.Context(), b.ID, finished) {
+				continue
+			}
 			titleKey := strings.ToLower(b.Title)
 			seriesKey := strings.ToLower(b.SeriesTitle)
 			if seriesKey != "" && seenSeries[seriesKey] {
@@ -93,15 +127,32 @@ func (s *Server) recShelves(r *http.Request, userID int64, limit int) []map[stri
 				seenSeries[seriesKey] = true
 			}
 			deduped = append(deduped, b)
+			if limit > 0 && len(deduped) >= limit {
+				break
+			}
 		}
-		shelves = append(shelves, map[string]any{
-			"id": "series_next", "title": tr(lang, "shelf.series_next"), "books": booksJSON(deduped), "hasMore": false,
-		})
+		if len(deduped) > 0 {
+			shelves = append(shelves, map[string]any{
+				"id": "series_next", "title": tr(lang, "shelf.series_next"), "books": booksJSON(deduped), "hasMore": false,
+			})
+		}
 	}
-	if recs, err := s.st.RecommendForUser(r.Context(), seeds, exclude, limit); err == nil && len(recs) > 0 {
-		shelves = append(shelves, map[string]any{
-			"id": "for_you", "title": tr(lang, "shelf.for_you"), "books": booksJSON(recs), "hasMore": false,
-		})
+	if recs, err := s.st.RecommendForUser(r.Context(), seeds, exclude, limit*2); err == nil && len(recs) > 0 {
+		kept := recs[:0]
+		for _, b := range recs {
+			if s.bookFinished(r.Context(), b.ID, finished) {
+				continue
+			}
+			kept = append(kept, b)
+			if limit > 0 && len(kept) >= limit {
+				break
+			}
+		}
+		if len(kept) > 0 {
+			shelves = append(shelves, map[string]any{
+				"id": "for_you", "title": tr(lang, "shelf.for_you"), "books": booksJSON(kept), "hasMore": false,
+			})
+		}
 	}
 	return shelves
 }
