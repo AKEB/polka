@@ -257,18 +257,25 @@ func runImport(log *slog.Logger, args []string) error {
 		neu, err := st.BookIdentityMaps(ctx)
 		if err != nil {
 			log.Error("identity map after import", "error", err)
-		} else if mapping := store.RemapBookIDs(oldIDs, neu); len(mapping) > 0 {
+		} else {
 			users, uerr := auth.Open(filepath.Join(cfg.DataDir, "users.db"))
 			if uerr != nil {
 				log.Error("open users db for remap", "error", uerr)
 			} else {
-				n, rerr := users.RemapBookIDs(ctx, mapping)
-				users.Close()
-				if rerr != nil {
-					log.Error("remap user book ids", "error", rerr)
-				} else {
-					log.Info("remapped user book references", "books", len(mapping), "rows", n)
+				if mapping := store.RemapBookIDs(oldIDs, neu); len(mapping) > 0 {
+					n, rerr := users.RemapBookIDs(ctx, mapping)
+					if rerr != nil {
+						log.Error("remap user book ids", "error", rerr)
+					} else {
+						log.Info("remapped user book references", "books", len(mapping), "rows", n)
+					}
 				}
+				if n, perr := users.PurgeBookRefsNotIn(ctx, neu.BookIDs()); perr != nil {
+					log.Error("purge orphan user book refs", "error", perr)
+				} else if n > 0 {
+					log.Info("purged orphan user book references", "rows", n)
+				}
+				users.Close()
 			}
 		}
 		if n, err := st.ApplyBookEdits(ctx); err != nil {

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"testing"
 
+	"github.com/vestigiumincaligne/polka/internal/auth"
 	"github.com/vestigiumincaligne/polka/internal/store"
 )
 
@@ -238,5 +240,101 @@ func TestSeriesNextSkipsFinishedBeyondRecentSample(t *testing.T) {
 	}
 	if !found3 {
 		t.Fatalf("series_next should advance to Цикл-3, got %v", titles)
+	}
+}
+
+func TestReplaceImportDropsOrphanFinishedSiblings(t *testing.T) {
+	ts, client, st, dir := newManageServerDir(t)
+	ctx := context.Background()
+	users, err := auth.Open(filepath.Join(dir, "users.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { users.Close() })
+
+	id1, err := st.AddBook(ctx, &store.BookInput{
+		Title: "Книга", Series: "Серия А", SeriesNum: 1, LibID: "L1",
+		Authors: []store.AuthorName{{Last: "Автор"}}, Folder: "x.zip", File: "7", Ext: "fb2", Lang: "ru",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id2, err := st.AddBook(ctx, &store.BookInput{
+		Title: "Книга", Series: "Серия Б", SeriesNum: 1, LibID: "L2",
+		Authors: []store.AuthorName{{Last: "Автор"}}, Folder: "x.zip", File: "7", Ext: "fb2", Lang: "ru",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	postJSON(t, client, ts.URL+"/api/v1/books/"+itoa64(id1)+"/finished", map[string]any{"done": true}).Body.Close()
+
+	admin, err := users.GetByLogin(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Legacy fan-out: finished row on every sibling id.
+	if err := users.SaveProgress(ctx, admin.ID, id2, auth.Progress{Overall: 1}); err != nil {
+		t.Fatal(err)
+	}
+
+	old, err := st.BookIdentityMaps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+
+	// Fresh catalog ids starting over while users.db keeps old progress rows.
+	st, err = store.Open(filepath.Join(dir, "catalog2.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	other, err := st.AddBook(ctx, &store.BookInput{
+		Title: "Чужая", LibID: "OTHER",
+		Authors: []store.AuthorName{{Last: "X"}}, Folder: "y.zip", File: "1", Ext: "fb2", Lang: "ru",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	new1, err := st.AddBook(ctx, &store.BookInput{
+		Title: "Книга", Series: "Серия А", SeriesNum: 1, LibID: "L1",
+		Authors: []store.AuthorName{{Last: "Автор"}}, Folder: "x.zip", File: "7", Ext: "fb2", Lang: "ru",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	new2, err := st.AddBook(ctx, &store.BookInput{
+		Title: "Книга", Series: "Серия Б", SeriesNum: 1, LibID: "L2",
+		Authors: []store.AuthorName{{Last: "Автор"}}, Folder: "x.zip", File: "7", Ext: "fb2", Lang: "ru",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other != id1 {
+		t.Fatalf("expected rowid reuse for hazard; other=%d id1=%d", other, id1)
+	}
+
+	neu, err := st.BookIdentityMaps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapping := store.RemapBookIDs(old, neu)
+	if _, err := users.RemapBookIDs(ctx, mapping); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := users.PurgeBookRefsNotIn(ctx, neu.BookIDs()); err != nil {
+		t.Fatal(err)
+	}
+
+	finished, err := users.FinishedBookIDs(ctx, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finished[other] {
+		t.Fatalf("unrelated book %d marked finished; finished=%#v mapping=%#v", other, finished, mapping)
+	}
+	if !finished[new1] && !finished[new2] {
+		t.Fatalf("real book should stay finished; finished=%#v mapping=%#v", finished, mapping)
 	}
 }

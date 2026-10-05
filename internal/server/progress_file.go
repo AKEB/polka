@@ -20,19 +20,17 @@ func (s *Server) siblingBookIDs(ctx context.Context, bookID int64) []int64 {
 	return ids
 }
 
-// saveProgressForFile writes the same progress to every FileKey sibling.
+// saveProgressForFile writes progress for bookID only.
+// FileKey siblings share progress at read time (progressForFile / UI marks);
+// writing to every sibling used to leave orphan rows after INPX replace
+// that attached "finished" to unrelated new books reusing those rowids.
 func (s *Server) saveProgressForFile(ctx context.Context, userID, bookID int64, p auth.Progress) error {
-	for _, id := range s.siblingBookIDs(ctx, bookID) {
-		cp := p
-		cp.BookID = id
-		if err := s.users.SaveProgress(ctx, userID, id, cp); err != nil {
-			return err
-		}
-	}
-	return nil
+	p.BookID = bookID
+	return s.users.SaveProgress(ctx, userID, bookID, p)
 }
 
-// deleteProgressForFile clears progress on every FileKey sibling.
+// deleteProgressForFile clears progress on every FileKey sibling (including
+// legacy fan-out rows from older builds).
 func (s *Server) deleteProgressForFile(ctx context.Context, userID, bookID int64) error {
 	for _, id := range s.siblingBookIDs(ctx, bookID) {
 		if err := s.users.DeleteProgress(ctx, userID, id); err != nil {

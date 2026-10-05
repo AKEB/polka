@@ -557,6 +557,27 @@ func (s *Server) runImport(inpxPath string, replace bool, cleanup bool) {
 	}
 }
 
+// purgeOrphanUserBooks drops personal rows whose book_id is missing from the
+// catalog. Safe to run on startup after upgrades that may have left orphans.
+func (s *Server) purgeOrphanUserBooks(ctx context.Context) {
+	if s.st == nil || s.users == nil {
+		return
+	}
+	ids, err := s.st.BookIdentityMaps(ctx)
+	if err != nil {
+		s.log.Warn("orphan purge: catalog ids", "error", err)
+		return
+	}
+	n, err := s.users.PurgeBookRefsNotIn(ctx, ids.BookIDs())
+	if err != nil {
+		s.log.Warn("orphan purge", "error", err)
+		return
+	}
+	if n > 0 {
+		s.log.Info("purged orphan user book references", "rows", n)
+	}
+}
+
 // afterReplaceImport remaps personal book_id references and re-applies
 // admin metadata corrections that survived Clear().
 func (s *Server) afterReplaceImport(ctx context.Context, old store.IdentityMaps) {
@@ -565,13 +586,23 @@ func (s *Server) afterReplaceImport(ctx context.Context, old store.IdentityMaps)
 		s.log.Error("identity map after import", "error", err)
 		return
 	}
-	mapping := store.RemapBookIDs(old, neu)
-	if s.users != nil && len(mapping) > 0 {
-		n, err := s.users.RemapBookIDs(ctx, mapping)
-		if err != nil {
-			s.log.Error("remap user book ids", "error", err)
-		} else {
-			s.log.Info("remapped user book references", "books", len(mapping), "rows", n)
+	if s.users != nil {
+		mapping := store.RemapBookIDs(old, neu)
+		if len(mapping) > 0 {
+			n, err := s.users.RemapBookIDs(ctx, mapping)
+			if err != nil {
+				s.log.Error("remap user book ids", "error", err)
+			} else {
+				s.log.Info("remapped user book references", "books", len(mapping), "rows", n)
+			}
+		}
+		// Drop progress/ratings/lists whose book_id no longer exists. Orphan
+		// rows (e.g. old FileKey fan-out siblings that did not remap) would
+		// otherwise mark unrelated new books as finished when rowids reuse.
+		if n, err := s.users.PurgeBookRefsNotIn(ctx, neu.BookIDs()); err != nil {
+			s.log.Error("purge orphan user book refs", "error", err)
+		} else if n > 0 {
+			s.log.Info("purged orphan user book references", "rows", n)
 		}
 	}
 	if n, err := s.st.ApplyBookEdits(ctx); err != nil {

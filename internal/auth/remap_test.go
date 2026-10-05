@@ -91,3 +91,37 @@ func TestRemapBookIDsConflictKeepsDestination(t *testing.T) {
 		t.Fatalf("kept destination progress = %+v err=%v", p, err)
 	}
 }
+
+func TestPurgeBookRefsNotIn(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "users.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	u, err := s.CreateUser(ctx, "reader", "password123", "", RoleUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.SaveProgress(ctx, u.ID, 10, Progress{Overall: 1})
+	_ = s.SaveProgress(ctx, u.ID, 11, Progress{Overall: 1}) // orphan sibling id
+	_ = s.RateBook(ctx, u.ID, 11, 5)
+
+	n, err := s.PurgeBookRefsNotIn(ctx, map[int64]bool{10: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n < 2 {
+		t.Fatalf("purged rows = %d", n)
+	}
+	finished, err := s.FinishedBookIDs(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !finished[10] || finished[11] {
+		t.Fatalf("finished after purge = %#v", finished)
+	}
+	if s.UserRating(ctx, u.ID, 11) != 0 {
+		t.Fatal("orphan rating should be gone")
+	}
+}

@@ -79,6 +79,9 @@ func New(cfg *config.Config, log *slog.Logger, st *store.Store, lib *library.Lib
 		}
 	}
 	s.initOIDC(context.Background())
+	// Repair leftover progress/ratings that point at missing catalog ids
+	// (e.g. after an older FileKey fan-out + replace import).
+	go s.purgeOrphanUserBooks(context.Background())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)

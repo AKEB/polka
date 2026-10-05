@@ -76,3 +76,71 @@ func (s *Service) RemapBookIDs(ctx context.Context, mapping map[int64]int64) (in
 	}
 	return updated, nil
 }
+
+// PurgeBookRefsNotIn deletes progress, ratings and list rows whose book_id
+// is not in valid. Used after a catalog replace so leftover ids cannot attach
+// to unrelated new books that reused SQLite rowids.
+func (s *Service) PurgeBookRefsNotIn(ctx context.Context, valid map[int64]bool) (int, error) {
+	ids, err := s.referencedBookIDs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	var stale []int64
+	for _, id := range ids {
+		if !valid[id] {
+			stale = append(stale, id)
+		}
+	}
+	if len(stale) == 0 {
+		return 0, nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	deleted := 0
+	for _, id := range stale {
+		for _, q := range []string{
+			`DELETE FROM reading_progress WHERE book_id = ?`,
+			`DELETE FROM book_ratings WHERE book_id = ?`,
+			`DELETE FROM list_books WHERE book_id = ?`,
+		} {
+			res, err := tx.ExecContext(ctx, q, id)
+			if err != nil {
+				return deleted, err
+			}
+			if n, _ := res.RowsAffected(); n > 0 {
+				deleted += int(n)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return deleted, err
+	}
+	return deleted, nil
+}
+
+func (s *Service) referencedBookIDs(ctx context.Context) ([]int64, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT book_id FROM reading_progress
+		UNION
+		SELECT book_id FROM book_ratings
+		UNION
+		SELECT book_id FROM list_books`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
