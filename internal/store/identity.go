@@ -86,9 +86,9 @@ func (s *Store) BookIdentityMaps(ctx context.Context) (IdentityMaps, error) {
 	return out, rows.Err()
 }
 
-// RemapBookIDs builds oldID → newID using file keys first, then lib_id.
-// Every old catalog id is considered (including FileKey siblings), so user
-// progress rows written for any sibling can follow the re-import.
+// RemapBookIDs builds oldID → newID. Flibusta lib_id is preferred over
+// FileKey: archive folder/file slots can be reused for different works after
+// a full dump replace, while lib_id stays with the work.
 func RemapBookIDs(old, neu IdentityMaps) map[int64]int64 {
 	out := make(map[int64]int64, len(old.FileOf))
 	matched := make(map[int64]bool, len(old.FileOf))
@@ -106,8 +106,19 @@ func RemapBookIDs(old, neu IdentityMaps) map[int64]int64 {
 		return true
 	}
 
-	// 1) Same FileKey + same lib_id (best match for multi-row INPX files).
+	// 1) Unique lib_id (strongest signal for Flibusta dumps).
+	for oldID, lib := range old.LibOf {
+		if newID, ok := neu.ByLib[lib]; ok {
+			assign(oldID, newID)
+		}
+	}
+
+	// 2) Same FileKey + same lib_id (covers duplicate-lib edge cases where
+	// ByLib dropped the id but both sides still carry the lib string).
 	for oldID, key := range old.FileOf {
+		if matched[oldID] {
+			continue
+		}
 		lib := old.LibOf[oldID]
 		if lib == "" {
 			continue
@@ -119,11 +130,13 @@ func RemapBookIDs(old, neu IdentityMaps) map[int64]int64 {
 		}
 	}
 
-	// 2) Remaining ids that share a FileKey: pair by ascending id order.
+	// 3) FileKey-only pairing — only for rows without lib_id (local uploads).
+	// Never pair a lib_id-bearing old row by FileKey alone: that is how
+	// unrelated new books inherited "finished" after INPX replace.
 	for key, oldIDs := range old.ByFile {
 		var pendingOld []int64
 		for _, id := range oldIDs {
-			if !matched[id] {
+			if !matched[id] && old.LibOf[id] == "" {
 				pendingOld = append(pendingOld, id)
 			}
 		}
@@ -138,16 +151,6 @@ func RemapBookIDs(old, neu IdentityMaps) map[int64]int64 {
 		}
 		for i := 0; i < len(pendingOld) && i < len(pendingNew); i++ {
 			assign(pendingOld[i], pendingNew[i])
-		}
-	}
-
-	// 3) lib_id fallback when the archive folder/file was renamed.
-	for oldID, lib := range old.LibOf {
-		if matched[oldID] {
-			continue
-		}
-		if newID, ok := neu.ByLib[lib]; ok {
-			assign(oldID, newID)
 		}
 	}
 	return out

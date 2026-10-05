@@ -275,6 +275,15 @@ func runImport(log *slog.Logger, args []string) error {
 				} else if n > 0 {
 					log.Info("purged orphan user book references", "rows", n)
 				}
+				fileCount := make(map[string]int, len(neu.ByFile))
+				for key, list := range neu.ByFile {
+					fileCount[key] = len(list)
+				}
+				if n, perr := users.PurgeMismatchedProgressClones(ctx, neu.FileOf, fileCount); perr != nil {
+					log.Error("purge mismatched progress clones", "error", perr)
+				} else if n > 0 {
+					log.Info("purged mismatched progress clones", "rows", n)
+				}
 				users.Close()
 			}
 		}

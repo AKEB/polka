@@ -558,7 +558,7 @@ func (s *Server) runImport(inpxPath string, replace bool, cleanup bool) {
 }
 
 // purgeOrphanUserBooks drops personal rows whose book_id is missing from the
-// catalog. Safe to run on startup after upgrades that may have left orphans.
+// catalog, and legacy fan-out clones that now point at unrelated FileKeys.
 func (s *Server) purgeOrphanUserBooks(ctx context.Context) {
 	if s.st == nil || s.users == nil {
 		return
@@ -575,6 +575,18 @@ func (s *Server) purgeOrphanUserBooks(ctx context.Context) {
 	}
 	if n > 0 {
 		s.log.Info("purged orphan user book references", "rows", n)
+	}
+	fileCount := make(map[string]int, len(ids.ByFile))
+	for key, list := range ids.ByFile {
+		fileCount[key] = len(list)
+	}
+	n, err = s.users.PurgeMismatchedProgressClones(ctx, ids.FileOf, fileCount)
+	if err != nil {
+		s.log.Warn("progress clone purge", "error", err)
+		return
+	}
+	if n > 0 {
+		s.log.Info("purged mismatched progress clones", "rows", n)
 	}
 }
 
@@ -603,6 +615,15 @@ func (s *Server) afterReplaceImport(ctx context.Context, old store.IdentityMaps)
 			s.log.Error("purge orphan user book refs", "error", err)
 		} else if n > 0 {
 			s.log.Info("purged orphan user book references", "rows", n)
+		}
+		fileCount := make(map[string]int, len(neu.ByFile))
+		for key, list := range neu.ByFile {
+			fileCount[key] = len(list)
+		}
+		if n, err := s.users.PurgeMismatchedProgressClones(ctx, neu.FileOf, fileCount); err != nil {
+			s.log.Error("purge mismatched progress clones", "error", err)
+		} else if n > 0 {
+			s.log.Info("purged mismatched progress clones", "rows", n)
 		}
 	}
 	if n, err := s.st.ApplyBookEdits(ctx); err != nil {

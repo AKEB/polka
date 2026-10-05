@@ -144,3 +144,112 @@ func (s *Service) referencedBookIDs(ctx context.Context) ([]int64, error) {
 	}
 	return out, rows.Err()
 }
+
+// PurgeMismatchedProgressClones removes legacy FileKey fan-out copies that
+// now point at unrelated catalog books. Fan-out wrote identical
+// (chapter, position, overall, updated_at) rows to every sibling; after a
+// partial remap those clones can sit on reused rowids with different FileKeys.
+// For each clone group we keep the FileKey partition with the strongest
+// catalog presence and delete the rest.
+func (s *Service) PurgeMismatchedProgressClones(ctx context.Context, fileOf map[int64]string, fileCount map[string]int) (int, error) {
+	if len(fileOf) == 0 {
+		return 0, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT user_id, book_id, chapter, position, overall, updated_at
+		FROM reading_progress WHERE cleared = 0`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	type row struct {
+		userID    int64
+		bookID    int64
+		chapter   int
+		position  float64
+		overall   float64
+		updatedAt string
+	}
+	groups := map[string][]row{}
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.userID, &r.bookID, &r.chapter, &r.position, &r.overall, &r.updatedAt); err != nil {
+			return 0, err
+		}
+		key := fmt.Sprintf("%d|%d|%g|%g|%s", r.userID, r.chapter, r.position, r.overall, r.updatedAt)
+		groups[key] = append(groups[key], r)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	var drop []row
+	for _, g := range groups {
+		if len(g) < 2 {
+			continue
+		}
+		type part struct {
+			key  string
+			rows []row
+		}
+		byKey := map[string]*part{}
+		var missing []row
+		for _, r := range g {
+			fk, ok := fileOf[r.bookID]
+			if !ok || fk == "" {
+				missing = append(missing, r)
+				continue
+			}
+			p := byKey[fk]
+			if p == nil {
+				p = &part{key: fk}
+				byKey[fk] = p
+			}
+			p.rows = append(p.rows, r)
+		}
+		drop = append(drop, missing...)
+		if len(byKey) <= 1 {
+			continue
+		}
+		bestScore := -1
+		var best string
+		for fk, p := range byKey {
+			score := len(p.rows) + fileCount[fk]
+			if score > bestScore || (score == bestScore && fk < best) {
+				bestScore = score
+				best = fk
+			}
+		}
+		for fk, p := range byKey {
+			if fk == best {
+				continue
+			}
+			drop = append(drop, p.rows...)
+		}
+	}
+	if len(drop) == 0 {
+		return 0, nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	deleted := 0
+	for _, r := range drop {
+		res, err := tx.ExecContext(ctx,
+			`DELETE FROM reading_progress WHERE user_id = ? AND book_id = ?`, r.userID, r.bookID)
+		if err != nil {
+			return deleted, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			deleted += int(n)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return deleted, err
+	}
+	return deleted, nil
+}

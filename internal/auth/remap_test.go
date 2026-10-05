@@ -92,6 +92,50 @@ func TestRemapBookIDsConflictKeepsDestination(t *testing.T) {
 	}
 }
 
+func TestPurgeMismatchedProgressClones(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "users.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	u, err := s.CreateUser(ctx, "reader", "password123", "", RoleUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Identical fan-out clones (same timestamp).
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO reading_progress (user_id, book_id, chapter, position, overall, locator, updated_at)
+		VALUES
+			(?, 10, 0, 0, 1, '', '2024-01-01 12:00:00.000'),
+			(?, 11, 0, 0, 1, '', '2024-01-01 12:00:00.000')`, u.ID, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileOf := map[int64]string{
+		10: "a\x00" + "1\x00" + "fb2",
+		11: "b\x00" + "2\x00" + "fb2",
+	}
+	fileCount := map[string]int{
+		fileOf[10]: 3, // real series siblings
+		fileOf[11]: 1, // unrelated reused rowid
+	}
+	n, err := s.PurgeMismatchedProgressClones(ctx, fileOf, fileCount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("purged = %d", n)
+	}
+	finished, err := s.FinishedBookIDs(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !finished[10] || finished[11] {
+		t.Fatalf("finished = %#v", finished)
+	}
+}
+
 func TestPurgeBookRefsNotIn(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "users.db"))
 	if err != nil {

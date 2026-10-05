@@ -83,6 +83,28 @@ func TestRemapFallsBackToLibID(t *testing.T) {
 	}
 }
 
+func TestRemapPrefersLibIDOverFileKeyPairing(t *testing.T) {
+	key := FileKey("x.zip", "7", "fb2")
+	other := FileKey("y.zip", "1", "fb2")
+	old := IdentityMaps{
+		FileOf: map[int64]string{10: key, 11: key},
+		ByFile: map[string][]int64{key: {10, 11}},
+		LibOf:  map[int64]string{10: "L10", 11: "L11"},
+		ByLib:  map[string]int64{"L10": 10, "L11": 11},
+	}
+	// New dump reused the archive slot for L11, while L10 moved to another file.
+	neu := IdentityMaps{
+		FileOf: map[int64]string{100: key, 200: other},
+		ByFile: map[string][]int64{key: {100}, other: {200}},
+		LibOf:  map[int64]string{100: "L11", 200: "L10"},
+		ByLib:  map[string]int64{"L11": 100, "L10": 200},
+	}
+	m := RemapBookIDs(old, neu)
+	if m[10] != 200 || m[11] != 100 {
+		t.Fatalf("lib_id must win over FileKey pairing: %#v", m)
+	}
+}
+
 func TestBookEditsSurviveClear(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "edits.db"))
 	if err != nil {
