@@ -95,8 +95,8 @@ func (s *Server) bookFinished(ctx context.Context, bookID int64, finished map[in
 }
 
 // seriesSeedIDs returns books that mean a series was actually started:
-// finished reads and in-progress reading. Ratings/wishlists must not seed
-// "Continue series" — that made series look started with no books read.
+// finished reads, or in-progress reading past a trivial open.
+// Ratings/wishlists and 1%-opens must not seed "Continue series".
 func (s *Server) seriesSeedIDs(ctx context.Context, userID int64) []int64 {
 	var seeds []int64
 	seen := map[int64]bool{}
@@ -113,6 +113,10 @@ func (s *Server) seriesSeedIDs(ctx context.Context, userID int64) []int64 {
 	}
 	if progress, err := s.users.ListProgress(ctx, userID, 100); err == nil {
 		for _, p := range progress {
+			// Ignore accidental opens (cover/reader peek) that never became real reading.
+			if p.Overall < 0.05 {
+				continue
+			}
 			add(p.BookID)
 		}
 	}

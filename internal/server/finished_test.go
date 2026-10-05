@@ -357,12 +357,16 @@ func TestSeriesNextIgnoresRatingsWithoutReading(t *testing.T) {
 	// High rating alone must not make the series look "started".
 	postJSON(t, client, ts.URL+"/api/v1/books/"+itoa64(series[0])+"/rating", map[string]int{"rating": 5}).Body.Close()
 	postJSON(t, client, ts.URL+"/api/v1/books/"+itoa64(series[0])+"/wishlist", map[string]any{"add": true}).Body.Close()
+	// Accidental 1% open also must not seed Continue series.
+	postJSON(t, client, ts.URL+"/api/v1/read/"+itoa64(series[0])+"/progress", map[string]any{
+		"chapter": 0, "position": 0.1, "progress": 0.01,
+	}).Body.Close()
 
 	shelves := getJSONWith(t, client, ts.URL+"/main/getBooks/getHomeShelves")
 	for _, sh := range shelves["shelves"].([]any) {
 		m := sh.(map[string]any)
 		if m["id"] == "series_next" {
-			t.Fatalf("series_next must not appear from rating/wishlist alone: %#v", m["books"])
+			t.Fatalf("series_next must not appear from rating/wishlist/peek alone: %#v", m["books"])
 		}
 	}
 }

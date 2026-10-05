@@ -71,6 +71,9 @@ func (s *Store) SimilarBooks(ctx context.Context, bookID int64, limit int) ([]Bo
 
 // SeriesContinuations: for finished books that belong to series, the next book in the series.
 // At most one book per series (anthologies often share the same series_num).
+// Seeds whose series_num looks like a calendar year (1800–2100) are ignored —
+// Flibusta tags yearly anthologies that way («Антология поэзии · 2006»), and
+// finishing one volume must not suggest an unrelated collection from the next year.
 func (s *Store) SeriesContinuations(ctx context.Context, seedIDs, excludeIDs []int64, limit int) ([]Book, error) {
 	if len(seedIDs) == 0 {
 		return nil, nil
@@ -79,6 +82,7 @@ func (s *Store) SeriesContinuations(ctx context.Context, seedIDs, excludeIDs []i
 		WITH seeds AS (
 			SELECT series_id, max(series_num) AS last_num
 			FROM books WHERE id IN (%s) AND series_id IS NOT NULL AND series_num IS NOT NULL
+				AND (series_num < 1800 OR series_num > 2100)
 			GROUP BY series_id
 		),
 		nexts AS (
@@ -89,6 +93,7 @@ func (s *Store) SeriesContinuations(ctx context.Context, seedIDs, excludeIDs []i
 					SELECT min(b2.series_num) FROM books b2
 					WHERE b2.series_id = seeds.series_id AND b2.deleted = 0
 						AND b2.series_num > seeds.last_num
+						AND (b2.series_num < 1800 OR b2.series_num > 2100)
 						%s
 				)
 			GROUP BY seeds.series_id

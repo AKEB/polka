@@ -86,6 +86,69 @@ func TestSeriesContinuations(t *testing.T) {
 	}
 }
 
+func TestSeriesContinuationsSkipsYearBucketSeries(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "years.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ctx := context.Background()
+	session, err := st.NewImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	add := func(title string, num int) {
+		if err := session.Add(&BookInput{
+			Title: title, Authors: []AuthorName{{Last: "Сб"}}, Series: "Антология поэзии", SeriesNum: num,
+			Folder: "y.zip", File: title, Ext: "fb2", Lang: "ru", Rate: 4, Added: "2024-01-01",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("Поэты пражского Скита", 2005)
+	add("Век перевода", 2006)
+	add("Стихи о маме", 2008)
+	// Real numbered series in the same DB must still continue.
+	if err := session.Add(&BookInput{
+		Title: "Сага-1", Authors: []AuthorName{{Last: "Авт"}}, Series: "Сага", SeriesNum: 1,
+		Folder: "s.zip", File: "saga1", Ext: "fb2", Lang: "ru", Rate: 4, Added: "2024-01-01",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Add(&BookInput{
+		Title: "Сага-2", Authors: []AuthorName{{Last: "Авт"}}, Series: "Сага", SeriesNum: 2,
+		Folder: "s.zip", File: "saga2", Ext: "fb2", Lang: "ru", Rate: 4, Added: "2024-01-01",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := st.DB().Query(`SELECT id, title FROM books`)
+	ids := map[string]int64{}
+	for rows.Next() {
+		var id int64
+		var title string
+		rows.Scan(&id, &title)
+		ids[title] = id
+	}
+	rows.Close()
+
+	next, err := st.SeriesContinuations(ctx, []int64{ids["Поэты пражского Скита"], ids["Сага-1"]}, nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := titlesOf(next)
+	for _, ttitle := range got {
+		if ttitle == "Век перевода" || ttitle == "Стихи о маме" {
+			t.Fatalf("year-bucket anthology must not continue: %v", got)
+		}
+	}
+	if len(next) != 1 || next[0].Title != "Сага-2" {
+		t.Fatalf("want only Сага-2, got %v", got)
+	}
+}
+
 func TestSeriesContinuationsOnePerSeries(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "anth.db"))
 	if err != nil {
