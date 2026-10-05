@@ -94,48 +94,76 @@ func (s *Server) bookFinished(ctx context.Context, bookID int64, finished map[in
 	return false
 }
 
+// seriesSeedIDs returns books that mean a series was actually started:
+// finished reads and in-progress reading. Ratings/wishlists must not seed
+// "Continue series" — that made series look started with no books read.
+func (s *Server) seriesSeedIDs(ctx context.Context, userID int64) []int64 {
+	var seeds []int64
+	seen := map[int64]bool{}
+	add := func(id int64) {
+		if !seen[id] {
+			seen[id] = true
+			seeds = append(seeds, id)
+		}
+	}
+	if done, err := s.users.ListFinished(ctx, userID, 300, 0); err == nil {
+		for _, p := range done {
+			add(p.BookID)
+		}
+	}
+	if progress, err := s.users.ListProgress(ctx, userID, 100); err == nil {
+		for _, p := range progress {
+			add(p.BookID)
+		}
+	}
+	return seeds
+}
+
 // recShelves builds the personal recommendation shelves.
 func (s *Server) recShelves(r *http.Request, userID int64, limit int) []map[string]any {
 	seeds, exclude := s.userSeeds(r, userID)
-	if len(seeds) == 0 {
-		return nil
-	}
 	lang := reqLang(r)
 	finished := s.finishedSet(r)
 	var shelves []map[string]any
 
+	seriesSeeds := s.seriesSeedIDs(r.Context(), userID)
 	// Oversample: excluded finished ids should make SQL skip ahead, but also
 	// drop any leftover finished cards (legacy progress without full fan-out).
-	if next, err := s.st.SeriesContinuations(r.Context(), seeds, exclude, limit*3); err == nil && len(next) > 0 {
-		seenTitle := map[string]bool{}
-		seenSeries := map[string]bool{}
-		deduped := next[:0]
-		for _, b := range next {
-			if s.bookFinished(r.Context(), b.ID, finished) {
-				continue
+	if len(seriesSeeds) > 0 {
+		if next, err := s.st.SeriesContinuations(r.Context(), seriesSeeds, exclude, limit*3); err == nil && len(next) > 0 {
+			seenTitle := map[string]bool{}
+			seenSeries := map[string]bool{}
+			deduped := next[:0]
+			for _, b := range next {
+				if s.bookFinished(r.Context(), b.ID, finished) {
+					continue
+				}
+				titleKey := strings.ToLower(b.Title)
+				seriesKey := strings.ToLower(b.SeriesTitle)
+				if seriesKey != "" && seenSeries[seriesKey] {
+					continue
+				}
+				if seenTitle[titleKey] {
+					continue
+				}
+				seenTitle[titleKey] = true
+				if seriesKey != "" {
+					seenSeries[seriesKey] = true
+				}
+				deduped = append(deduped, b)
+				if limit > 0 && len(deduped) >= limit {
+					break
+				}
 			}
-			titleKey := strings.ToLower(b.Title)
-			seriesKey := strings.ToLower(b.SeriesTitle)
-			if seriesKey != "" && seenSeries[seriesKey] {
-				continue
-			}
-			if seenTitle[titleKey] {
-				continue
-			}
-			seenTitle[titleKey] = true
-			if seriesKey != "" {
-				seenSeries[seriesKey] = true
-			}
-			deduped = append(deduped, b)
-			if limit > 0 && len(deduped) >= limit {
-				break
+			if len(deduped) > 0 {
+				shelves = append(shelves, map[string]any{
+					"id": "series_next", "title": tr(lang, "shelf.series_next"), "books": booksJSON(deduped), "hasMore": false,
+				})
 			}
 		}
-		if len(deduped) > 0 {
-			shelves = append(shelves, map[string]any{
-				"id": "series_next", "title": tr(lang, "shelf.series_next"), "books": booksJSON(deduped), "hasMore": false,
-			})
-		}
+	}
+	if len(seeds) == 0 {
+		return shelves
 	}
 	if recs, err := s.st.RecommendForUser(r.Context(), seeds, exclude, limit*2); err == nil && len(recs) > 0 {
 		kept := recs[:0]

@@ -338,3 +338,31 @@ func TestReplaceImportDropsOrphanFinishedSiblings(t *testing.T) {
 		t.Fatalf("real book should stay finished; finished=%#v mapping=%#v", finished, mapping)
 	}
 }
+
+func TestSeriesNextIgnoresRatingsWithoutReading(t *testing.T) {
+	ts, client, st := newManageServer(t)
+	ctx := context.Background()
+
+	var series []int64
+	for i := 1; i <= 2; i++ {
+		id, err := st.AddBook(ctx, &store.BookInput{
+			Title: "Том-" + itoa64(int64(i)), Series: "Сага", SeriesNum: i,
+			Authors: []store.AuthorName{{Last: "Автор"}}, Folder: "s.zip", File: "t" + itoa64(int64(i)), Ext: "fb2", Lang: "ru",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		series = append(series, id)
+	}
+	// High rating alone must not make the series look "started".
+	postJSON(t, client, ts.URL+"/api/v1/books/"+itoa64(series[0])+"/rating", map[string]int{"rating": 5}).Body.Close()
+	postJSON(t, client, ts.URL+"/api/v1/books/"+itoa64(series[0])+"/wishlist", map[string]any{"add": true}).Body.Close()
+
+	shelves := getJSONWith(t, client, ts.URL+"/main/getBooks/getHomeShelves")
+	for _, sh := range shelves["shelves"].([]any) {
+		m := sh.(map[string]any)
+		if m["id"] == "series_next" {
+			t.Fatalf("series_next must not appear from rating/wishlist alone: %#v", m["books"])
+		}
+	}
+}
