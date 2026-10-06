@@ -670,16 +670,21 @@ func (s *Server) handleGetSeriesNeighbors(w http.ResponseWriter, r *http.Request
 		http.Error(w, "bookId required", http.StatusBadRequest)
 		return
 	}
-	seriesID, title, books, err := s.st.SeriesNeighbors(store.WithLang(r.Context(), bookLang(r)), id, 0, 0)
+	list, err := s.st.SeriesNeighborShelves(store.WithLang(r.Context(), bookLang(r)), id, 0, 0)
 	if err != nil {
 		s.apiError(w, err)
 		return
 	}
-	writeJSON(w, map[string]any{
-		"seriesId": seriesID,
-		"title":    title,
-		"books":    s.booksForUser(r, books),
-	})
+	shelves := make([]map[string]any, 0, len(list))
+	for _, sh := range list {
+		shelves = append(shelves, map[string]any{
+			"seriesId":  sh.SeriesID,
+			"title":     sh.Title,
+			"currentId": sh.CurrentID,
+			"books":     s.booksForUser(r, sh.Books),
+		})
+	}
+	writeJSON(w, map[string]any{"shelves": shelves})
 }
 
 func (s *Server) handleGetBookForm(w http.ResponseWriter, r *http.Request) {

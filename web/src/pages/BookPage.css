@@ -455,6 +455,12 @@ a.tag:hover {
   padding-top: 24px;
 }
 
+.book-page__series-shelf {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
 .book-page__similar-external {
   margin-top: 20px;
 }

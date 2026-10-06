@@ -90,31 +90,82 @@ func TestSeriesNeighbors(t *testing.T) {
 	st, ids := newRecsStore(t)
 	ctx := context.Background()
 
-	seriesID, title, books, err := st.SeriesNeighbors(ctx, ids["Цикл-2"], 1, 1)
+	shelves, err := st.SeriesNeighborShelves(ctx, ids["Цикл-2"], 1, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if title != "Цикл" || seriesID == 0 {
-		t.Fatalf("series = %d %q", seriesID, title)
+	if len(shelves) != 1 || shelves[0].Title != "Цикл" || shelves[0].SeriesID == 0 {
+		t.Fatalf("shelves = %+v", shelves)
 	}
-	if got := titlesOf(books); len(got) != 3 || got[0] != "Цикл-1" || got[1] != "Цикл-2" || got[2] != "Цикл-3" {
+	if got := titlesOf(shelves[0].Books); len(got) != 3 || got[0] != "Цикл-1" || got[1] != "Цикл-2" || got[2] != "Цикл-3" {
 		t.Fatalf("window around book 2 = %v", got)
 	}
 
-	_, _, first, err := st.SeriesNeighbors(ctx, ids["Цикл-1"], 8, 1)
+	start, err := st.SeriesNeighborShelves(ctx, ids["Цикл-1"], 8, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := titlesOf(first); len(got) != 2 || got[0] != "Цикл-1" || got[1] != "Цикл-2" {
+	if len(start) != 1 {
+		t.Fatalf("start shelves = %+v", start)
+	}
+	if got := titlesOf(start[0].Books); len(got) != 2 || got[0] != "Цикл-1" || got[1] != "Цикл-2" {
 		t.Fatalf("window at start = %v", got)
 	}
 
-	_, _, none, err := st.SeriesNeighbors(ctx, ids["Посторонняя"], 8, 8)
+	none, err := st.SeriesNeighborShelves(ctx, ids["Посторонняя"], 8, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(none) != 0 {
-		t.Fatalf("book with no series must be empty, got %v", titlesOf(none))
+		t.Fatalf("book with no series must be empty, got %+v", none)
+	}
+}
+
+func TestSeriesNeighborShelvesAllSeries(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "multi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ctx := context.Background()
+
+	add := func(title, series, file string, num int) int64 {
+		t.Helper()
+		id, err := st.AddBook(ctx, &BookInput{
+			Title: title, Series: series, SeriesNum: num,
+			Authors: []AuthorName{{Last: "Панов"}}, Folder: "a.zip", File: file, Ext: "fb2", Lang: "ru",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	add("Том 9", "Тайный город", "9", 9)
+	id := add("Правила крови", "Тайный город", "42", 10)
+	add("Том 11", "Тайный город", "11", 11)
+	add("Арх 2", "Правила крови", "2", 2)
+	add("Правила крови", "Правила крови", "42", 3)
+	add("Арх 4", "Правила крови", "4", 4)
+
+	shelves, err := st.SeriesNeighborShelves(ctx, id, 8, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shelves) != 2 {
+		t.Fatalf("want 2 series shelves, got %+v", shelves)
+	}
+	got := map[string][]string{}
+	for _, sh := range shelves {
+		got[sh.Title] = titlesOf(sh.Books)
+		if sh.CurrentID != id {
+			t.Errorf("%s currentId = %d, want %d", sh.Title, sh.CurrentID, id)
+		}
+	}
+	if titles := got["Тайный город"]; len(titles) != 3 || titles[1] != "Правила крови" {
+		t.Errorf("Тайный город = %v", titles)
+	}
+	if titles := got["Правила крови"]; len(titles) != 3 || titles[1] != "Правила крови" {
+		t.Errorf("Правила крови = %v", titles)
 	}
 }
 
@@ -180,12 +231,12 @@ func TestSeriesContinuationsSkipsYearBucketSeries(t *testing.T) {
 		t.Fatalf("want only Сага-2, got %v", got)
 	}
 
-	_, _, neighbors, err := st.SeriesNeighbors(ctx, ids["Поэты пражского Скита"], 8, 8)
+	neighbors, err := st.SeriesNeighborShelves(ctx, ids["Поэты пражского Скита"], 8, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(neighbors) != 0 {
-		t.Fatalf("year-bucket series must not have neighbors, got %v", titlesOf(neighbors))
+		t.Fatalf("year-bucket series must not have neighbors, got %+v", neighbors)
 	}
 }
 

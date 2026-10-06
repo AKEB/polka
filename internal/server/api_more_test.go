@@ -56,19 +56,24 @@ func TestCatalogAndSeriesEndpoints(t *testing.T) {
 	}
 
 	neighbors := getJSONWith(t, c, f.ts.URL+"/main/getBooks/getSeriesNeighbors?bookId="+id)
-	if neighbors["title"] != "Классика" {
-		t.Errorf("series neighbors title: %v", neighbors)
+	nshelves, _ := neighbors["shelves"].([]any)
+	if len(nshelves) != 1 {
+		t.Fatalf("series neighbor shelves: %v", neighbors)
 	}
-	nb := neighbors["books"].([]any)
+	nsh := nshelves[0].(map[string]any)
+	if nsh["title"] != "Классика" {
+		t.Errorf("series neighbors title: %v", nsh)
+	}
+	nb := nsh["books"].([]any)
 	if len(nb) != 2 {
-		t.Errorf("series neighbors books: %v", neighbors)
+		t.Errorf("series neighbors books: %v", nsh)
 	}
 	if code(t, c, "GET", f.ts.URL+"/main/getBooks/getSeriesNeighbors", "") != http.StatusBadRequest {
 		t.Error("neighbors without bookId -> 400")
 	}
 	empty := getJSONWith(t, c, f.ts.URL+"/main/getBooks/getSeriesNeighbors?bookId=99999")
-	if books, _ := empty["books"].([]any); len(books) != 0 {
-		t.Errorf("unknown book must have empty neighbors: %v", empty)
+	if books, _ := empty["shelves"].([]any); len(books) != 0 {
+		t.Errorf("unknown book must have empty neighbor shelves: %v", empty)
 	}
 
 	similar := getJSONWith(t, c, f.ts.URL+"/main/getBooks/getSimilarBooks?bookId="+id+"&title=Война&author=Толстой")

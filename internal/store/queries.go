@@ -371,39 +371,96 @@ func (s *Store) SeriesBooks(ctx context.Context, seriesID int64) ([]Book, string
 
 const seriesNeighborWindow = 8
 
-// SeriesNeighbors returns books around bookID in its series: a window of
-// previous volumes, the current book, then following volumes. Year-bucket
-// anthology "series" are skipped. FileKey clones collapse to one card.
-func (s *Store) SeriesNeighbors(ctx context.Context, bookID int64, before, after int) (seriesID int64, title string, books []Book, err error) {
+// SeriesNeighborShelf is the previous/next window for one series a book belongs to.
+type SeriesNeighborShelf struct {
+	SeriesID  int64
+	Title     string
+	CurrentID int64
+	Books     []Book
+}
+
+// SeriesNeighborShelves returns a shelf per series of bookID (including
+// FileKey siblings listed under other series). Year-bucket anthologies
+// are skipped. FileKey clones collapse to one card.
+func (s *Store) SeriesNeighborShelves(ctx context.Context, bookID int64, before, after int) ([]SeriesNeighborShelf, error) {
 	if before <= 0 {
 		before = seriesNeighborWindow
 	}
 	if after <= 0 {
 		after = seriesNeighborWindow
 	}
-	var seriesNum sql.NullInt64
-	err = s.db.QueryRowContext(ctx, `
-		SELECT b.series_id, b.series_num, s.title
-		FROM books b JOIN series s ON s.id = b.series_id
-		WHERE b.id = ? AND b.deleted = 0 AND b.series_id IS NOT NULL`, bookID).
-		Scan(&seriesID, &seriesNum, &title)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, "", nil, nil
-	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT b2.id, b2.series_id, coalesce(b2.series_num, 0), coalesce(s.title, '')
+		FROM books b
+		JOIN books b2 ON b2.folder_id = b.folder_id
+			AND lower(b2.file) = lower(b.file)
+			AND lower(b2.ext) = lower(b.ext)
+		JOIN series s ON s.id = b2.series_id
+		WHERE b.id = ? AND b.deleted = 0 AND b2.deleted = 0
+		ORDER BY s.title COLLATE NOCASE, coalesce(b2.series_num, 0), b2.id`, bookID)
 	if err != nil {
-		return 0, "", nil, err
+		return nil, err
 	}
-	num := 0
-	if seriesNum.Valid {
-		num = int(seriesNum.Int64)
+	type sibSeries struct {
+		id    int64
+		num   int
+		title string
 	}
-	if yearLikeSeriesNum(num) {
-		return 0, "", nil, nil
+	currentBySeries := map[int64]sibSeries{}
+	order := make([]int64, 0)
+	for rows.Next() {
+		var id, seriesID int64
+		var num int
+		var title string
+		if err := rows.Scan(&id, &seriesID, &num, &title); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		prev, ok := currentBySeries[seriesID]
+		if !ok {
+			order = append(order, seriesID)
+			currentBySeries[seriesID] = sibSeries{id: id, num: num, title: title}
+			continue
+		}
+		if id == bookID || (prev.id != bookID && id < prev.id) {
+			currentBySeries[seriesID] = sibSeries{id: id, num: num, title: title}
+		}
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
 
+	var out []SeriesNeighborShelf
+	for _, seriesID := range order {
+		cur := currentBySeries[seriesID]
+		if yearLikeSeriesNum(cur.num) {
+			continue
+		}
+		books, err := s.seriesNeighborWindow(ctx, seriesID, cur.id, before, after)
+		if err != nil {
+			return nil, err
+		}
+		if len(books) < 2 {
+			continue
+		}
+		for i := range books {
+			if books[i].ID == cur.id {
+				books[i].ID = bookID
+			}
+		}
+		out = append(out, SeriesNeighborShelf{
+			SeriesID: seriesID, Title: cur.title, CurrentID: bookID, Books: books,
+		})
+	}
+	return out, nil
+}
+
+func (s *Store) seriesNeighborWindow(ctx context.Context, seriesID, currentID int64, before, after int) ([]Book, error) {
 	all, err := s.queryBooks(ctx, `b.series_id = ?`, `coalesce(b.series_num, 0), b.title, b.id`, 0, 0, seriesID)
 	if err != nil {
-		return 0, "", nil, err
+		return nil, err
 	}
 	ids := make([]int64, 0, len(all))
 	for _, b := range all {
@@ -411,7 +468,7 @@ func (s *Store) SeriesNeighbors(ctx context.Context, bookID int64, before, after
 	}
 	keys, err := s.BookFileKeys(ctx, ids)
 	if err != nil {
-		return 0, "", nil, err
+		return nil, err
 	}
 
 	ordered := make([]Book, 0, len(all))
@@ -424,7 +481,7 @@ func (s *Store) SeriesNeighbors(ctx context.Context, bookID int64, before, after
 		key := keys[b.ID]
 		if key != "" {
 			if prev, ok := seenKey[key]; ok {
-				if b.ID == bookID {
+				if b.ID == currentID {
 					ordered[prev] = b
 					idx = prev
 				}
@@ -432,13 +489,13 @@ func (s *Store) SeriesNeighbors(ctx context.Context, bookID int64, before, after
 			}
 			seenKey[key] = len(ordered)
 		}
-		if b.ID == bookID {
+		if b.ID == currentID {
 			idx = len(ordered)
 		}
 		ordered = append(ordered, b)
 	}
 	if idx < 0 || len(ordered) < 2 {
-		return 0, "", nil, nil
+		return nil, nil
 	}
 	lo := idx - before
 	if lo < 0 {
@@ -448,7 +505,7 @@ func (s *Store) SeriesNeighbors(ctx context.Context, bookID int64, before, after
 	if hi > len(ordered) {
 		hi = len(ordered)
 	}
-	return seriesID, title, ordered[lo:hi], nil
+	return ordered[lo:hi], nil
 }
 
 // --- Shelves ---

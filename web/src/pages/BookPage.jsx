@@ -79,7 +79,7 @@ const BookPage = ({ user, sync }) => {
   const [enrichment, setEnrichment] = useState(null);
   const [enrichmentLoading, setEnrichmentLoading] = useState(false);
   const [similar, setSimilar] = useState(null); // {similar: [], external: []}
-  const [seriesNeighbors, setSeriesNeighbors] = useState(null); // {seriesId, title, books}
+  const [seriesNeighbors, setSeriesNeighbors] = useState(null); // {shelves: [{seriesId, title, books}]}
   const [reviews, setReviews] = useState(null); // null = not loaded, [] = empty
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [readMeta, setReadMeta] = useState(null); // {chapters, pageEstimate, format}
@@ -755,22 +755,27 @@ const BookPage = ({ user, sync }) => {
         </section>
       </div>
 
-      {seriesNeighbors?.books?.length > 1 && (
+      {seriesNeighbors?.shelves?.length > 0 && (
         <section className="book-page__series-shelf">
-          <Shelf
-            title={seriesNeighbors.title || t("book.series")}
-            subtitle={t("book.series.sub")}
-            books={seriesNeighbors.books}
-            currentId={BookID}
-            onSeeAll={
-              seriesNeighbors.seriesId
-                ? () =>
-                    navigate(`/series/${seriesNeighbors.seriesId}`, {
-                      state: { title: seriesNeighbors.title },
-                    })
-                : undefined
-            }
-          />
+          {seriesNeighbors.shelves.map((shelf) =>
+            shelf.books?.length > 1 ? (
+              <Shelf
+                key={shelf.seriesId}
+                title={shelf.title || t("book.series")}
+                subtitle={t("book.series.sub")}
+                books={shelf.books}
+                currentId={BookID}
+                onSeeAll={
+                  shelf.seriesId
+                    ? () =>
+                        navigate(`/series/${shelf.seriesId}`, {
+                          state: { title: shelf.title },
+                        })
+                    : undefined
+                }
+              />
+            ) : null
+          )}
         </section>
       )}
 
