@@ -196,6 +196,7 @@ func New(cfg *config.Config, log *slog.Logger, st *store.Store, lib *library.Lib
 		mux.HandleFunc("GET /main/getBooks/getSearchGenres", s.protected(s.handleGetSearchGenres))
 		mux.HandleFunc("GET /main/getBooks/getSearchAuthorBooks", s.protected(s.handleGetAuthorBooks))
 		mux.HandleFunc("GET /main/getBooks/getSearchSeriesBooks", s.protected(s.handleGetSeriesBooks))
+		mux.HandleFunc("GET /main/getBooks/getSeriesNeighbors", s.protected(s.handleGetSeriesNeighbors))
 		mux.HandleFunc("GET /main/getBooks/getBookForm", s.protected(s.handleGetBookForm))
 		mux.HandleFunc("GET /main/getBooks/getBooksByIds", s.protected(s.handleGetBooksByIDs))
 		mux.HandleFunc("GET /main/getBooks/getSimilarBooks", s.protected(s.handleGetSimilarBooks))

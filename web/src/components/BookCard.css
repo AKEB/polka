@@ -74,6 +74,14 @@
   box-shadow: inset 0 0 0 2px rgba(22, 163, 74, 0.55), var(--shadow-md);
 }
 
+.book-card--current .book-card__cover-link {
+  box-shadow: 0 0 0 3px var(--accent, #ffd24c), var(--shadow-md);
+}
+
+.book-card--current .book-card__title {
+  font-weight: 700;
+}
+
 .book-card__cover {
   width: 100%;
   height: 100%;

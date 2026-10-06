@@ -86,6 +86,38 @@ func TestSeriesContinuations(t *testing.T) {
 	}
 }
 
+func TestSeriesNeighbors(t *testing.T) {
+	st, ids := newRecsStore(t)
+	ctx := context.Background()
+
+	seriesID, title, books, err := st.SeriesNeighbors(ctx, ids["Цикл-2"], 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if title != "Цикл" || seriesID == 0 {
+		t.Fatalf("series = %d %q", seriesID, title)
+	}
+	if got := titlesOf(books); len(got) != 3 || got[0] != "Цикл-1" || got[1] != "Цикл-2" || got[2] != "Цикл-3" {
+		t.Fatalf("window around book 2 = %v", got)
+	}
+
+	_, _, first, err := st.SeriesNeighbors(ctx, ids["Цикл-1"], 8, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := titlesOf(first); len(got) != 2 || got[0] != "Цикл-1" || got[1] != "Цикл-2" {
+		t.Fatalf("window at start = %v", got)
+	}
+
+	_, _, none, err := st.SeriesNeighbors(ctx, ids["Посторонняя"], 8, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("book with no series must be empty, got %v", titlesOf(none))
+	}
+}
+
 func TestSeriesContinuationsSkipsYearBucketSeries(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "years.db"))
 	if err != nil {
@@ -146,6 +178,14 @@ func TestSeriesContinuationsSkipsYearBucketSeries(t *testing.T) {
 	}
 	if len(next) != 1 || next[0].Title != "Сага-2" {
 		t.Fatalf("want only Сага-2, got %v", got)
+	}
+
+	_, _, neighbors, err := st.SeriesNeighbors(ctx, ids["Поэты пражского Скита"], 8, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(neighbors) != 0 {
+		t.Fatalf("year-bucket series must not have neighbors, got %v", titlesOf(neighbors))
 	}
 }
 

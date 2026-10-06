@@ -69,4 +69,9 @@ describe("BookCard", () => {
     expect(document.querySelector(".book-card--finished")).not.toBeNull();
     expect(document.querySelector(".book-card__progress")).toBeNull();
   });
+
+  it("marks the current book on a series shelf", () => {
+    render(<MemoryRouter><BookCard book={book} current /></MemoryRouter>);
+    expect(document.querySelector(".book-card--current")).not.toBeNull();
+  });
 });

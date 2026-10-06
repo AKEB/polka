@@ -369,6 +369,88 @@ func (s *Store) SeriesBooks(ctx context.Context, seriesID int64) ([]Book, string
 	return books, title, err
 }
 
+const seriesNeighborWindow = 8
+
+// SeriesNeighbors returns books around bookID in its series: a window of
+// previous volumes, the current book, then following volumes. Year-bucket
+// anthology "series" are skipped. FileKey clones collapse to one card.
+func (s *Store) SeriesNeighbors(ctx context.Context, bookID int64, before, after int) (seriesID int64, title string, books []Book, err error) {
+	if before <= 0 {
+		before = seriesNeighborWindow
+	}
+	if after <= 0 {
+		after = seriesNeighborWindow
+	}
+	var seriesNum sql.NullInt64
+	err = s.db.QueryRowContext(ctx, `
+		SELECT b.series_id, b.series_num, s.title
+		FROM books b JOIN series s ON s.id = b.series_id
+		WHERE b.id = ? AND b.deleted = 0 AND b.series_id IS NOT NULL`, bookID).
+		Scan(&seriesID, &seriesNum, &title)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, "", nil, nil
+	}
+	if err != nil {
+		return 0, "", nil, err
+	}
+	num := 0
+	if seriesNum.Valid {
+		num = int(seriesNum.Int64)
+	}
+	if yearLikeSeriesNum(num) {
+		return 0, "", nil, nil
+	}
+
+	all, err := s.queryBooks(ctx, `b.series_id = ?`, `coalesce(b.series_num, 0), b.title, b.id`, 0, 0, seriesID)
+	if err != nil {
+		return 0, "", nil, err
+	}
+	ids := make([]int64, 0, len(all))
+	for _, b := range all {
+		ids = append(ids, b.ID)
+	}
+	keys, err := s.BookFileKeys(ctx, ids)
+	if err != nil {
+		return 0, "", nil, err
+	}
+
+	ordered := make([]Book, 0, len(all))
+	seenKey := map[string]int{}
+	idx := -1
+	for _, b := range all {
+		if yearLikeSeriesNum(b.SeqNumber) {
+			continue
+		}
+		key := keys[b.ID]
+		if key != "" {
+			if prev, ok := seenKey[key]; ok {
+				if b.ID == bookID {
+					ordered[prev] = b
+					idx = prev
+				}
+				continue
+			}
+			seenKey[key] = len(ordered)
+		}
+		if b.ID == bookID {
+			idx = len(ordered)
+		}
+		ordered = append(ordered, b)
+	}
+	if idx < 0 || len(ordered) < 2 {
+		return 0, "", nil, nil
+	}
+	lo := idx - before
+	if lo < 0 {
+		lo = 0
+	}
+	hi := idx + after + 1
+	if hi > len(ordered) {
+		hi = len(ordered)
+	}
+	return seriesID, title, ordered[lo:hi], nil
+}
+
 // --- Shelves ---
 
 type Shelf struct {

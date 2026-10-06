@@ -58,3 +58,6 @@ export const fetchExternalReviews = ({ bookId, title, author } = {}) =>
 
 export const fetchSimilarBooks = ({ bookId, title, author } = {}) =>
   get("getSimilarBooks", { bookId, title, author });
+
+export const fetchSeriesNeighbors = ({ bookId } = {}) =>
+  get("getSeriesNeighbors", { bookId });

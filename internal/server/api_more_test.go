@@ -55,6 +55,22 @@ func TestCatalogAndSeriesEndpoints(t *testing.T) {
 		t.Error("unknown series -> 404")
 	}
 
+	neighbors := getJSONWith(t, c, f.ts.URL+"/main/getBooks/getSeriesNeighbors?bookId="+id)
+	if neighbors["title"] != "Классика" {
+		t.Errorf("series neighbors title: %v", neighbors)
+	}
+	nb := neighbors["books"].([]any)
+	if len(nb) != 2 {
+		t.Errorf("series neighbors books: %v", neighbors)
+	}
+	if code(t, c, "GET", f.ts.URL+"/main/getBooks/getSeriesNeighbors", "") != http.StatusBadRequest {
+		t.Error("neighbors without bookId -> 400")
+	}
+	empty := getJSONWith(t, c, f.ts.URL+"/main/getBooks/getSeriesNeighbors?bookId=99999")
+	if books, _ := empty["books"].([]any); len(books) != 0 {
+		t.Errorf("unknown book must have empty neighbors: %v", empty)
+	}
+
 	similar := getJSONWith(t, c, f.ts.URL+"/main/getBooks/getSimilarBooks?bookId="+id+"&title=Война&author=Толстой")
 	if _, ok := similar["similar"]; !ok {
 		t.Errorf("similar books response: %v", similar)

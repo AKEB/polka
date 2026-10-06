@@ -164,6 +164,7 @@ func TestRouteAccess(t *testing.T) {
 		{"GET", "/main/getBooks/getSearchGenres?search=", ""},
 		{"GET", "/main/getBooks/getSearchSeries?search=Класс", ""},
 		{"GET", "/main/getBooks/getSearchSeriesBooks?selectedItemID=" + itoa64(f.seriesID), ""},
+		{"GET", "/main/getBooks/getSeriesNeighbors?bookId=" + id, ""},
 		{"GET", "/main/getBooks/getSearchStats?search=Война", ""},
 		{"GET", "/main/getBooks/getSearchTitles?search=Война", ""},
 		{"GET", "/main/getBooks/getShelfBooks?shelfId=newest", ""},

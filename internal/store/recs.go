@@ -69,6 +69,12 @@ func (s *Store) SimilarBooks(ctx context.Context, bookID int64, limit int) ([]Bo
 	return books, rows.Err()
 }
 
+// yearLikeSeriesNum reports Flibusta-style "series" entries that use a
+// publication year as series_num (e.g. «Антология поэзии · 2006»).
+func yearLikeSeriesNum(n int) bool {
+	return n >= 1800 && n <= 2100
+}
+
 // SeriesContinuations: for finished books that belong to series, the next book in the series.
 // At most one book per series (anthologies often share the same series_num).
 // Seeds whose series_num looks like a calendar year (1800–2100) are ignored —

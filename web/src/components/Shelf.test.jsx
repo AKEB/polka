@@ -31,6 +31,16 @@ describe("Shelf", () => {
     expect(onSeeAll).toHaveBeenCalledOnce();
   });
 
+  it("marks the current book in the track", () => {
+    render(
+      <MemoryRouter>
+        <Shelf title="Серия" books={books} currentId={2} />
+      </MemoryRouter>
+    );
+    expect(document.querySelector('[data-book-id="2"] .book-card--current')).not.toBeNull();
+    expect(document.querySelector('[data-book-id="1"] .book-card--current')).toBeNull();
+  });
+
   it("has no see-all button without a handler", () => {
     render(<MemoryRouter><Shelf title="Полка" books={books} /></MemoryRouter>);
     expect(screen.queryByRole("button", { name: t("shelf.seeAll") })).toBeNull();

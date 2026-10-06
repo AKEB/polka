@@ -663,6 +663,25 @@ func (s *Server) handleGetSeriesBooks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"titlesList": s.booksForUser(r, books), "title": title, "languages": s.languageMaps(r, langs)})
 }
 
+// GET /main/getBooks/getSeriesNeighbors?bookId
+func (s *Server) handleGetSeriesNeighbors(w http.ResponseWriter, r *http.Request) {
+	id, ok := idParam(r, "bookId")
+	if !ok {
+		http.Error(w, "bookId required", http.StatusBadRequest)
+		return
+	}
+	seriesID, title, books, err := s.st.SeriesNeighbors(store.WithLang(r.Context(), bookLang(r)), id, 0, 0)
+	if err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"seriesId": seriesID,
+		"title":    title,
+		"books":    s.booksForUser(r, books),
+	})
+}
+
 func (s *Server) handleGetBookForm(w http.ResponseWriter, r *http.Request) {
 	id, ok := idParam(r, "selectedItemID")
 	if !ok {

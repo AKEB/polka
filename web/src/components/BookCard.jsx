@@ -5,7 +5,7 @@ import api from "../api/api";
 import RatingStars from "./RatingStars";
 import "./BookCard.css";
 
-const BookCard = ({ book, size = "md", onForget }) => {
+const BookCard = ({ book, size = "md", onForget, current = false }) => {
   const [coverFailed, setCoverFailed] = useState(false);
 
   if (!book) return null;
@@ -21,7 +21,7 @@ const BookCard = ({ book, size = "md", onForget }) => {
   const showProgress = typeof ReadingProgress === "number" && ReadingProgress < 0.98;
 
   return (
-    <article className={`book-card book-card--${size}${isFinished ? " book-card--finished" : ""}`}>
+    <article className={`book-card book-card--${size}${isFinished ? " book-card--finished" : ""}${current ? " book-card--current" : ""}`}>
       <div className="book-card__cover-wrap">
         <Link to={`/book/${BookID}`} className="book-card__cover-link" aria-label={Title}>
           <div className="book-card__cover">

@@ -37,6 +37,7 @@ func (s *Server) registerSyncRoutes(mux *http.ServeMux) {
 		"GET /main/getBooks/getSearchGenres",
 		"GET /main/getBooks/getSearchAuthorBooks",
 		"GET /main/getBooks/getSearchSeriesBooks",
+		"GET /main/getBooks/getSeriesNeighbors",
 		"GET /main/getBooks/getExternalEnrichment",
 		"GET /main/getBooks/getSimilarBooks",
 		"GET /api/v1/collections",

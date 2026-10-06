@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import BookCard from "./BookCard";
 import "./Shelf.css";
 
-const Shelf = ({ title, subtitle, books = [], emptyHint, onSeeAll, onForgetBook }) => {
+const Shelf = ({ title, subtitle, books = [], emptyHint, onSeeAll, onForgetBook, currentId }) => {
   const trackRef = useRef(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -27,6 +27,22 @@ const Shelf = ({ title, subtitle, books = [], emptyHint, onSeeAll, onForgetBook 
       ro.disconnect();
     };
   }, [updateScrollState, books.length]);
+
+  useEffect(() => {
+    if (!currentId) return undefined;
+    const track = trackRef.current;
+    if (!track) return undefined;
+    const item = track.querySelector(`[data-book-id="${currentId}"]`);
+    if (!item) return undefined;
+    const left = item.offsetLeft - (track.clientWidth - item.offsetWidth) / 2;
+    if (typeof track.scrollTo === "function") {
+      track.scrollTo({ left: Math.max(0, left), behavior: "instant" });
+    } else {
+      track.scrollLeft = Math.max(0, left);
+    }
+    updateScrollState();
+    return undefined;
+  }, [currentId, books.length, updateScrollState]);
 
   const scroll = (direction) => {
     const el = trackRef.current;
@@ -75,8 +91,8 @@ const Shelf = ({ title, subtitle, books = [], emptyHint, onSeeAll, onForgetBook 
       {books.length ? (
         <div className="shelf__track" ref={trackRef}>
           {books.map((book) => (
-            <div key={book.BookID} className="shelf__item">
-              <BookCard book={book} onForget={onForgetBook} />
+            <div key={book.BookID} className="shelf__item" data-book-id={book.BookID}>
+              <BookCard book={book} onForget={onForgetBook} current={book.BookID === currentId} />
             </div>
           ))}
         </div>

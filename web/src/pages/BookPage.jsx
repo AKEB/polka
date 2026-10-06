@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "../api/api";
 import RatingStars from "../components/RatingStars";
 import RateStars from "../components/RateStars";
-import { fetchBookForm, fetchExternalEnrichment, fetchExternalReviews, fetchSimilarBooks } from "../api/fetchBooks";
+import { fetchBookForm, fetchExternalEnrichment, fetchExternalReviews, fetchSeriesNeighbors, fetchSimilarBooks } from "../api/fetchBooks";
 import Shelf from "../components/Shelf";
 import BookEditForm from "../components/BookEditForm";
 import { deleteBook } from "../api/manage";
@@ -79,6 +79,7 @@ const BookPage = ({ user, sync }) => {
   const [enrichment, setEnrichment] = useState(null);
   const [enrichmentLoading, setEnrichmentLoading] = useState(false);
   const [similar, setSimilar] = useState(null); // {similar: [], external: []}
+  const [seriesNeighbors, setSeriesNeighbors] = useState(null); // {seriesId, title, books}
   const [reviews, setReviews] = useState(null); // null = not loaded, [] = empty
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [readMeta, setReadMeta] = useState(null); // {chapters, pageEstimate, format}
@@ -263,6 +264,11 @@ const BookPage = ({ user, sync }) => {
     })
       .then((res) => !cancelled && setSimilar(res ?? null))
       .catch(() => !cancelled && setSimilar(null));
+
+    setSeriesNeighbors(null);
+    fetchSeriesNeighbors({ bookId: data.bookForm.BookID })
+      .then((res) => !cancelled && setSeriesNeighbors(res ?? null))
+      .catch(() => !cancelled && setSeriesNeighbors(null));
 
     setReviews(null);
     setReviewsLoading(true);
@@ -748,6 +754,25 @@ const BookPage = ({ user, sync }) => {
           )}
         </section>
       </div>
+
+      {seriesNeighbors?.books?.length > 1 && (
+        <section className="book-page__series-shelf">
+          <Shelf
+            title={seriesNeighbors.title || t("book.series")}
+            subtitle={t("book.series.sub")}
+            books={seriesNeighbors.books}
+            currentId={BookID}
+            onSeeAll={
+              seriesNeighbors.seriesId
+                ? () =>
+                    navigate(`/series/${seriesNeighbors.seriesId}`, {
+                      state: { title: seriesNeighbors.title },
+                    })
+                : undefined
+            }
+          />
+        </section>
+      )}
 
       {(similar?.similar?.length > 0 || similar?.external?.length > 0) && (
         <section className="book-page__similar">
