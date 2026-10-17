@@ -48,6 +48,46 @@ func TestApplyFB2CatalogMeta(t *testing.T) {
 	}
 }
 
+func TestApplyFB2CatalogMetaUTF8ExpandingToLower(t *testing.T) {
+	// "İ" (U+0130) expands under bytes.ToLower; the old insertBeforeTitleInfoClose
+	// reused the lowered index on the original slice and panicked.
+	src := []byte(`<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+  <description>
+    <title-info>
+      <author><last-name>İstanbul</last-name></author>
+      <book-title>Trudno быть bogom İ</book-title>
+      <lang>ru</lang>
+      <annotation><p>İİİ много кириллицы и latin İ</p></annotation>
+    </title-info>
+  </description>
+  <body><section><p>Текст.</p></section></body>
+</FictionBook>`)
+
+	out := ApplyFB2CatalogMeta(src, ConvertInfo{
+		Title:  "Трудно быть богом",
+		Series: "Стругацкие. Собрание",
+		SeqNum: 1,
+	})
+	s := string(out)
+	if !strings.Contains(s, "<book-title>Трудно быть богом</book-title>") {
+		t.Fatalf("title missing: %s", s)
+	}
+	if !strings.Contains(s, `name="Стругацкие. Собрание"`) || !strings.Contains(s, `number="1"`) {
+		t.Fatalf("series missing: %s", s)
+	}
+	if !strings.Contains(s, "</title-info>") {
+		t.Fatal("title-info close tag lost")
+	}
+	epub, err := Convert(out, "fb2", "epub", ConvertInfo{Title: "Трудно быть богом", Series: "Стругацкие. Собрание", SeqNum: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(epub) < 100 {
+		t.Fatalf("epub too small: %d", len(epub))
+	}
+}
+
 func TestFB2ToEPUBUsesCatalogTitle(t *testing.T) {
 	src := []byte(`<?xml version="1.0" encoding="utf-8"?>
 <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">

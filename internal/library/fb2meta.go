@@ -87,8 +87,10 @@ func rewriteTitleInfo(block []byte, info ConvertInfo) []byte {
 }
 
 func insertBeforeTitleInfoClose(block, insert []byte) []byte {
-	lower := bytes.ToLower(block)
-	idx := bytes.LastIndex(lower, []byte("</title-info>"))
+	// FB2 tags are ASCII. Do not use bytes.ToLower(block) and reuse that
+	// index on the original: UTF-8 letters can change byte length under
+	// ToLower (e.g. "İ" → "i̇"), which panics with slice bounds out of range.
+	idx := lastIndexASCIIFold(block, []byte("</title-info>"))
 	if idx < 0 {
 		return block
 	}
@@ -98,6 +100,38 @@ func insertBeforeTitleInfoClose(block, insert []byte) []byte {
 	out.Write(insert)
 	out.Write(block[idx:])
 	return out.Bytes()
+}
+
+// lastIndexASCIIFold finds the last occurrence of an ASCII needle in b,
+// ignoring ASCII case. Indices refer to b itself.
+func lastIndexASCIIFold(b, needle []byte) int {
+	n := len(needle)
+	if n == 0 || len(b) < n {
+		return -1
+	}
+	for i := len(b) - n; i >= 0; i-- {
+		ok := true
+		for j := 0; j < n; j++ {
+			c, want := b[i+j], needle[j]
+			if c == want {
+				continue
+			}
+			if c >= 'A' && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+			if want >= 'A' && want <= 'Z' {
+				want += 'a' - 'A'
+			}
+			if c != want {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return i
+		}
+	}
+	return -1
 }
 
 // HasCatalogOverride reports whether catalog info should rewrite file metadata.
